@@ -1,9 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 from util import  events_to_vector
 from event import sample_events
+
+# Scripts that looks at the distribution of events in a single node 
+# by sampling many events and checking the empirical distribution
+
+# TODO: check difference in length between subsequent events
+# TODO: check distribution at the leaf nodes, I am not sure how to do this exactly
 
 def get_probability_segment_covered(n_seg,p_new_event,n_sim=1000):
 	results = np.zeros((n_sim,n_seg))

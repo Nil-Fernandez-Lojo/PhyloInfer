@@ -5,13 +5,24 @@ from sample import Sample
 #TODO: for now 1 diploid chromosome, need to change that
 
 def decode_prufer(p):
-    p = list(p)
-    vertices = set(range(len(p) + 2))
-    for (i, u) in enumerate(p):
-        v = min(vertices.difference(p[i:]))
-        vertices.remove(v)
-        yield u, v
-    yield tuple(vertices)
+	"""
+	Generative function that coverts iteratively a prufer sequence into a list of directed edges
+	To get the whole list at once call list(decode_prufer(p))
+	
+	...
+	
+	Parameters
+	---------
+	p : list of int
+		prufer sequence
+	"""
+	p = list(p)
+	vertices = set(range(len(p) + 2))
+	for (i, u) in enumerate(p):
+		v = min(vertices.difference(p[i:]))
+		vertices.remove(v)
+		yield u, v
+	yield tuple(vertices)
 
 class Tree():
 	def __init__(self,number_nodes,config):
@@ -64,7 +75,9 @@ class Tree():
 			self.samples.append(sample)
 
 	def compute_prior_events(self,node):
+		# TODO: change how much the prior changes if order events is swapped (i.e. factorial term well justified)
 		# TODO: change this such that if part of the tree is modified, no need to redo all the calculations
+		# TODO: WTF is this?
 		log_likelihood = 0 
 		for child in node.children:
 			log_likelihood +=compute_prior_events(child)
@@ -97,7 +110,7 @@ class Tree():
 
 	def __str__(self):
 		def DFS_str(depth,node,string):
-			string += depth*'  '+'- '+str(node.name)+' '+str(node.get_profile())+'\n'
+			string += depth*'  '+'- '+str(node.id_)+' '+str(node.get_profile())+'\n'
 			for sample in node.samples:
 				string += (depth+1)*'  '+'sample: '+ str(sample.read_count)+'\n'
 			for child in node.children:
