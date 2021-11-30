@@ -123,20 +123,23 @@ class Node():
 		assert (np.count_nonzero(self.profile)!= len(self.profile)) or (np.all(change_profile[self.profile == 0] == 0)),"if segment lost no more events can happen"
 		self.profile += change_profile
 
-	def compute_prior_events(self):
-		if self.parent is None:
-			regions_available = [{'start':0,'len':self.config['number_segments']}]
-		else:
-			regions_available = get_regions_available_profile(self.parent.get_profile())
+	def get_log_prior_events(self,update = False):
+		# TODO: change how much the prior changes if order events is swapped (i.e. factorial term well justified)
+		if update:
+			if self.parent is None:
+				regions_available = [{'start':0,'len':self.config['number_segments']}]
+			else:
+				regions_available = get_regions_available_profile(self.parent.get_profile())
 
-		self.log_prior = 0
-		for event in self.events:
-			K = np.array([r['len'] for r in regions_available])
-			self.log_prior -= np.log(np.sum(np.multiply(K,K+1)))
-			regions_available = update_reagions_available_event(regions_available,event)
+			self.log_prior = 0
+			for event in self.events:
+				K = np.array([r['len'] for r in regions_available])
+				self.log_prior -= np.log(np.sum(np.multiply(K,K+1)))
+				regions_available = update_reagions_available_event(regions_available,event)
 
-		#TODO investigate how good this approximation is
-		self.log_prior += np.log(np.math.factorial(len(self.events)))  
+			#TODO investigate how good this approximation is
+			self.log_prior += np.log(np.math.factorial(len(self.events)))
+		return self.log_prior
 
 	def get_profile(self):
 		return np.copy(self.profile)

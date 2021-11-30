@@ -37,7 +37,7 @@ class Sample():
 		self.p_read = np.multiply(self.config['length_segments'],self.node.get_profile())
 		self.p_read = self.p_read/np.sum(self.p_read)
 
-	def generate_sample_from_CN(self):
+	def generate_read_counts_from_CN(self):
 		self.set_p_read()
 		self.read_count = np.random.multinomial(self.config['n_reads_sample'],self.p_read)
 

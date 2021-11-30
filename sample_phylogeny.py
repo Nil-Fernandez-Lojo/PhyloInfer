@@ -8,7 +8,7 @@ from tree import Tree
 # number of single cell or minibulk samples: n_samples
 # number of reads per sample: n_reads_sample (at the moment same number of reads per sample)
 
-number_nodes = 20
+number_nodes = 3
 config = {'number_segments':10, 'p_new_event': 0.8}
 config['n_reads_sample'] = 1000
 config['length_segments'] = np.ones(config['number_segments'])
