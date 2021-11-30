@@ -18,6 +18,6 @@ def sample_tree(n):
 	edges = decode_prufer(prufer)
 	root = np.random.randint(n)
 	
-print(list(decode([3,3,3,4])))
+print(list(decode_prufer([3,3,3,4])))
 	
 

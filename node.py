@@ -66,13 +66,7 @@ class Node():
 		for event in self.events:
 			K = np.array([r['len'] for r in regions_available])
 			self.log_prior -= np.log(np.sum(np.multiply(K,K+1)))
-			region_event_idx = None
-			for i,r in enumerate(regions_available):
-				if event.start >= r['start'] and event.start < r['start'] + r['len']:
-					region_event_idx = i
-					break
-			assert (region_event_idx is not None)
-			regions_available = update_reagions_available_event(regions_available,region_event_idx,event)
+			regions_available = update_reagions_available_event(regions_available,event)
 		self.log_prior += np.log(np.math.factorial(len(self.events))) #TODO investigate how good this is
 
 	def get_profile(self):

@@ -47,7 +47,7 @@ def sample_events(regions_available,p_new_event):
 		start = region['start'] + rel_start
 		gain = np.random.randint(2)
 		event = Event(start,length,gain)
-		regions_available = update_reagions_available_event(regions_available,region_idx,event)
+		regions_available = update_reagions_available_event(regions_available,event,region_idx)
 		events.append(event)
 	return events
 
