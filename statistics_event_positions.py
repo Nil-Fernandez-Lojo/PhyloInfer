@@ -36,11 +36,15 @@ def hist_len_events(n_seg,p_new_event,n_sim=1000):
 	print('mean length:', np.sum(np.multiply(p,np.arange(n_seg+1))))
 	return p
 
-p_new_event = 0.3
-number_segments = 100
+p_new_event = 1
+number_segments = 20
 
-n_sim = 1000000
-p = get_probability_breakpoint(number_segments,p_new_event,n_sim)
-#h = hist_len_events(number_segments,p_new_event,n_sim)
-plt.plot(p)
+n_sim = 100000
+#p = get_probability_breakpoint(number_segments,p_new_event,n_sim)
+#h = get_probability_segment_covered(number_segments,p_new_event,n_sim)
+#plt.plot(h)
+i = np.arange(number_segments)
+plt.plot(i, 2*(i+1)*(number_segments-i)/(number_segments*(number_segments+1)))
+plt.xlabel('Segment index')
+plt.ylabel('Probability segment covered by event')
 plt.show()
