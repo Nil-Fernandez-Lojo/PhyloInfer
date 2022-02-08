@@ -121,6 +121,15 @@ class Node():
 
 	def get_log_prior_events(self,update = False):
 		if update:
+			#check if event spans regions deleted, if so prior equal zero
+			if self.parent is None:
+				regions_available = np.arange(self.config['number_segments'])
+			else:
+				regions_available = get_regions_available_profile(self.parent.get_profile())
+			for event in self.events:
+				if not set(event.segments).issubset(regions_available):
+					return float("-inf")
+
 			if self.parent is None:
 				K = self.config['number_segments']
 			else:
@@ -130,6 +139,11 @@ class Node():
 			list_p_events = list_p_events/np.sum(list_p_events)
 			
 			n_events = len(self.events)
+			# if self.parent is not None:
+			# 	print("parent profile",self.parent.get_profile())
+			# for event in self.events:
+			# 	print(event)
+			# print(n_events,K)
 			p_n_events = list_p_events[n_events]
 
 			self.log_prior = np.log(p_n_events)# due to number of events

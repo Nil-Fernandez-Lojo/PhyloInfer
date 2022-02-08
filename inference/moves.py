@@ -69,17 +69,49 @@ def p_add_event(tree,node,event):
 		regions_available = get_regions_available_profile(node.parent.get_profile())
 
 	K = len(regions_available)
-	print("node.events", [str(ev) for ev in node.events])
+	#print("node.events", [str(ev) for ev in node.events])
 	if len(node.events) == 0:
-		print("K", K, "n_nodes", n_nodes)
-		print(-np.log(K*(K+1)*n_nodes))
-		exit()
+		#print("K", K, "n_nodes", n_nodes)
 		return -np.log(K*(K+1)*n_nodes)
 	else:
 		potential_region_events = get_regions_new_event(regions_available,node.events)
+		print("event",event)
+		print("regions_available",regions_available)
+		print("node.events",[str(ev) for ev in node.events])
+		if node.parent is not None:
+			print("parent profile",node.parent.get_profile())
 		print("potential_region_events",potential_region_events)
-		#print("region",region)
-	exit()
+		print()
+		for region in potential_region_events:
+			if set(event.segments).issubset(set(region["segments"])):
+				region_event = region
+				break
+
+		gain_fixed = False 
+		len_region = len(region_event['segments'])
+		if (region_event['previous_dir'] is None) and (region_event['next_dir'] is not None):
+			if len_region == 1:
+				gain_fixed = True
+			elif event.gain == region_event['next_dir']:
+				len_region -= 1
+		elif (region_event['next_dir'] is None) and (region_event['previous_dir'] is not None):
+			if len_region == 1:
+				gain_fixed = True
+			elif event.gain == region_event['previous_dir']:
+				len_region -= 1
+		else:
+			if (len_region <= 2):
+				gain_fixed = True
+			else:
+				if event.gain == region_event['previous_dir']:
+					len_region -= 1
+				if event.gain == region_event['next_dir']:
+					len_region -= 1
+
+		gain_factor = 0 if gain_fixed else -np.log(2)
+		K = len(region_event['segments'])
+		#print("region_event",region_event)
+		return -np.log(n_nodes)-np.log(len(potential_region_events))+gain_factor-np.log(K*(K+1))
 
 ################ general move function ################
 
@@ -121,71 +153,71 @@ def swap_events_2_nodes(tree):
 def add_event(tree):
 	#TODO: should improve this move (move by itself and maybe just implementation)
 	node = tree.nodes[np.random.choice(len(tree.nodes))]
-	additional_info = {"node.id_":node.id_,'sucess':False}
+	additional_info = {"node.id_":node.id_,'success':False}
 	#Root node
 	if node.parent is None:
 		regions_available = np.arange(tree.config['number_segments'])
 	else:
 		regions_available = get_regions_available_profile(node.parent.get_profile())
-	print("node id",node.id_)
-	print("regions_available",regions_available)
-	print("events:")
-	for ev in node.events:
-		print(ev)
-	print()
+	#print("node id",node.id_)
+	#print("regions_available",regions_available)
+	#print("events:")
+	#for ev in node.events:
+	#	print(ev)
+	#print()
 
 	if len(node.events) == 0:
 		if len(regions_available) == 0:
 			additional_info['reason'] = "No regions available (and 0 events)"
 			return additional_info
 		node.events = sample_events(regions_available,n_events = 1)
-		print('new event', str(node.events[0]))
+		#print('new event', str(node.events[0]))
 		additional_info['event'] = node.events[0]
-		additional_info["sucess"] = True
+		additional_info["success"] = True
 		return additional_info
 	else:
 		potential_region_events = get_regions_new_event(regions_available,node.events)
-		print('potential_region_events')
-		print(potential_region_events)
+		#print('potential_region_events')
+		#print(potential_region_events)
 		
 		if len(potential_region_events) == 0:
 			additional_info['reason'] = "No regions available"
 			return additional_info
 
 		region = potential_region_events[np.random.randint(len(potential_region_events))]
-		print('region selected', region)
+		#print('region selected', region)
 		
 		if (region['previous_dir'] is None) and (region['next_dir'] is None):
 			gain = np.random.randint(2)
 		elif region['previous_dir'] is None:
 			if len(region['segments']) == 1:
-				gain = 1 if region['next_dir'] == 0 else 1
+				gain = 1 if region['next_dir'] == 0 else 0
 			else:
 				gain = np.random.randint(2)
 				if gain == region['next_dir']:
 					region['segments'] = region['segments'][:-1]
 		elif region['next_dir'] is None:
 			if len(region['segments']) == 1:
-				gain = 1 if region['previous_dir'] == 0 else 1
+				gain = 1 if region['previous_dir'] == 0 else 0
 			else:
 				gain = np.random.randint(2)
 				if gain == region['previous_dir']:
 					region['segments'] = region['segments'][1:]
 		else:
 			if (len(region['segments']) <= 2):
-				gain = 1 if region['previous_dir'] == 0 else 1
+				gain = 1 if region['previous_dir'] == 0 else 0
 			else:
 				gain = np.random.randint(2)
 				if gain == region['previous_dir']:
 					region['segments'] = region['segments'][1:]
-				else:
+				if gain == region['next_dir']:
 					region['segments'] = region['segments'][:-1]
 		
 		new_event = sample_events(region['segments'],n_events = 1)[0]
 		new_event.gain = gain
-		print('new event', new_event)	
+		#print('new event', new_event)	
 		add_event_correct_place(node.events,new_event)
-		additional_info['sucess'] = True
+		additional_info['success'] = True
 		additional_info['event'] = new_event
 		return additional_info
 
@@ -193,13 +225,12 @@ def remove_event(tree):
 	n_events_node = [len(node.events) for node in tree.nodes]
 	tot_events = np.sum(n_events_node)
 	if tot_events == 0:
-		return {"sucess": False,"reason":"There are no events in the tree -> we can't remove any"}
+		return {"success": False,"reason":"There are no events in the tree -> we can't remove any"}
 	p = np.array(n_events_node)/tot_events
 	node = tree.nodes[np.random.choice(len(tree.nodes),p=p)]
 	event = node.events.pop(np.random.randint(len(node.events)))
-	print('event removed from node',node.id_)
-	info = {"node.id_": node.id_,"event":event}
-	return info
+	#print('event removed from node',node.id_)
+	return {"success": True,"node.id_": node.id_,"event":event}
 
 def modify_event(tree):
 	#TODO: finish, not needed in theory

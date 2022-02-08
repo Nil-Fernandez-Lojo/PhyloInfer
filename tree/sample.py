@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.stats import multinomial
+import math
 
 class Sample():
 	"""
@@ -55,4 +56,7 @@ class Sample():
 					return float('-inf')
 			else:
 				L+= self.read_count[i]*np.log(self.p_read[i])
+				if (math.isnan(L)):
+					print(self.read_count[i], self.p_read[i])
+					exit()
 		return L
