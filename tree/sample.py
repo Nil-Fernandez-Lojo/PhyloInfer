@@ -27,7 +27,8 @@ class Sample():
 	get_log_likelihood:
 		returns the log likelihood of read_count
 	"""
-	def __init__(self,node,config,read_count = None):
+	def __init__(self,id_,node,config,read_count = None):
+		self.id_ = id_
 		self.config = config
 		self.node = node
 		self.read_count = read_count

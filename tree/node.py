@@ -1,10 +1,11 @@
 import numpy as np
 
-from tree.util import events_to_vector, update_reagions_available_event,N_events_combinations
+from tree.util import events_to_vector,N_events_combinations
 from tree.event import Event, sample_events
 
 def get_regions_available_profile(profile):
 	"""
+	TODO should just store it as a binary vector
 	Given a copy number profile, returns the list of sorted regions where events can occur.
 	I.e. list of adjancent segments that do not have a copy number of 0
 	e.g. [0,1,2,2,1,1,0,0,0,1,1] -> [{'start':1,'len':5}, {'start':9,'len':2}]
@@ -14,25 +15,26 @@ def get_regions_available_profile(profile):
 	profile: np.array
 		1 dimensional numpy array of signed integers
 	"""
+	return np.where(profile>0)[0]
 
-	n_seg = len(profile)
-	regions_available = []
-	segment_present = profile != 0
+	# n_seg = len(profile)
+	# regions_available = []
+	# segment_present = profile != 0
 
-	for i in range(len(segment_present)):
-		if i == 0:
-			prev = 0
-		else:
-			prev = segment_present[i-1]
+	# for i in range(len(segment_present)):
+	# 	if i == 0:
+	# 		prev = 0
+	# 	else:
+	# 		prev = segment_present[i-1]
 
-		if prev != segment_present[i]:
-			if prev == 0:
-				regions_available.append({'start':i,'len':0})
-			else:
-				regions_available[-1]['len'] = i - regions_available[-1]['start']
-	if segment_present[-1] == 1:
-		regions_available[-1]['len'] = n_seg - regions_available[-1]['start']
-	return regions_available
+	# 	if prev != segment_present[i]:
+	# 		if prev == 0:
+	# 			regions_available.append({'start':i,'len':0})
+	# 		else:
+	# 			regions_available[-1]['len'] = i - regions_available[-1]['start']
+	# if segment_present[-1] == 1:
+	# 	regions_available[-1]['len'] = n_seg - regions_available[-1]['start']
+	# return regions_available
 
 class Node():
 	"""

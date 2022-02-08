@@ -16,16 +16,17 @@ number_nodes = 10
 number_samples = 10
 n_reads_sample = 1000*np.ones(number_samples)
 
-config = {'number_segments':10, 'p_new_event': 0.999}
+config = {'number_segments':10, 'p_new_event': 0.5}
 config['length_segments'] = np.ones(config['number_segments'])
- 
 
 tree = Tree(number_nodes,config) # generates a tree with random topology
 tree.generate_events() # generates a tree with random topology
-tree.generate_samples(n_reads_sample) # Assigns randomly a sample to a node and samples the reads per segment from the copy number profile
-print(tree.get_log_posterior()) #prints the (unnormalised up to an additive constant) log posterior distribution, at the moment the number of nodes is fixed
+#tree.generate_samples(n_reads_sample) # Assigns randomly a sample to a node and samples the reads per segment from the copy number profile
+#print(tree.get_log_posterior()) #prints the (unnormalised up to an additive constant) log posterior distribution, at the moment the number of nodes is fixed
 print(tree)
-
+for node in tree.nodes:
+	print(node.id_, [str(event) for event in node.events])
+exit()
 read_counts = []
 for node in tree.nodes:
 	for sample in node.samples:

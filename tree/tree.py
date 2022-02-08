@@ -55,7 +55,7 @@ class Tree():
 	"""
 	def __init__(self,number_nodes,config):
 		self.config = config
-		self.number_nodes = number_nodes
+		self.number_nodes = number_nodes #TODO, we should remove this variable 
 		self.nodes = [Node(i,config) for i in range(number_nodes)]
 
 		if number_nodes == 0:
@@ -98,20 +98,31 @@ class Tree():
 	def generate_samples(self,n_reads_sample):
 		for i in range(len(n_reads_sample)):
 			node = self.nodes[np.random.randint(self.number_nodes)]
-			sample = Sample(node,self.config)
+			sample = Sample(i,node,self.config)
 			sample.generate_read_counts_from_CN(n_reads_sample[i])
 			node.samples.append(sample)
 			self.samples.append(sample)
 
 	def randomly_assign_samples(self,read_counts):
 		for i in range(len(read_counts)):
-			node = self.nodes[np.random.randint(self.number_nodes)]
-			sample = Sample(node,self.config,read_counts[i])
+			permutation = np.random.permutation(len(self.nodes))
+			for j in range(len(self.nodes)):
+				node = self.nodes[permutation[j]]
+				profile = node.get_profile()
+				if not np.any((profile == 0) & (read_counts[i] != 0)):
+					break
+			sample = Sample(i,node,self.config,read_counts[i])
 			node.samples.append(sample)
 			self.samples.append(sample)
 
 	def get_number_samples(self):
 		return len(self.samples)
+
+	def get_number_events(self):
+		n = 0
+		for node in self.nodes:
+			n+= len(node.events)
+		return n
 
 	def get_log_prior(self):
 		n_samples = self.get_number_samples()
