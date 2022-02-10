@@ -8,185 +8,274 @@ from tree.node import get_regions_available_profile
 #TODO: use random number generator of numpy instead!
 np.random.seed(2020)
 
-def inference():
-	pass
-	#propose move (7 possible ones)
-	#	- add event
-	#	- remove event
-	#	- swap nodes events
-	#	- change sample assigment
-	#	- prune_and_reatach
-	#	- add new node
-	#	- merge 2 nodes
+#TODO: 
+# Give topology but no events nor samples assigments
+# Give tree size
+# True setup
 
-def inference_number_nodes_known():
-	pass
-	#propose move (5 possible ones)
-	#	- add event
-	#	- remove event
-	#	- swap nodes events
-	#	- change sample assigment
-	#	- prune_and_reatach
-		
-def inference_tree_topology_known(tree_start,config,n_iter):
-	pass
-	#propose move (4 possible ones)
-	#	- add event
-	#	- remove event
-	#	- swap nodes events
-	#	- change sample assigment
+############## SIDE FUNCTIONS ##############
+
+def compute_log_proposal_ratio(move_type,
+	info,
+	tree,
+	new_tree):
+
+	if move_type  in ["swap_events_2_nodes","modify_sample_attachments"]:
+		log_proposal_ratio = 0
+		return 0
+	else:
+		event = info["event"]
+		for j in range(len(tree.nodes)):
+			if tree.nodes[j].id_ == info["node.id_"]:
+				if move_type == "add_event":
+					node_to_add_event = tree.nodes[j]
+					node_to_remove_event = new_tree.nodes[j]
+				else:
+					node_to_add_event = new_tree.nodes[j]
+					node_to_remove_event = tree.nodes[j]
+
+				break
+
+		if move_type == "add_event":
+			log_p_add_event = p_add_event(tree,node_to_add_event,event)
+			log_p_remove_event = - np.log(new_tree.get_number_events())
+			
+			log_p_forw_mv = np.log(move_weights[move_type]) + log_p_add_event
+			log_p_back_mv = np.log(move_weights["remove_event"]) + log_p_remove_event
+			#print("log_p_add_event", log_p_add_event,"log_p_remove_event", log_p_remove_event)
+		else:
+			log_p_add_event = p_add_event(new_tree,node_to_add_event,event)
+			log_p_remove_event = - np.log(tree.get_number_events())
+
+			log_p_forw_mv = np.log(move_weights[move_type]) + log_p_remove_event
+			log_p_back_mv = np.log(move_weights["add_event"]) + log_p_add_event
+
+			#print("log_prior_ratio",new_tree.get_log_prior()-tree.get_log_prior())
+			#print("log_likelihood_ratio",new_tree.get_log_likelihood()-tree.get_log_likelihood())
+			#print("log_proposal_ratio",log_p_back_mv-log_p_forw_mv )
+		log_proposal_ratio = log_p_back_mv-log_p_forw_mv 
 	
-def inference_tree_topology_and_sample_assigments_known(tree_start,move_weights,config,n_iter):
-	moves_allowed = ["swap_events_2_nodes", "add_event", "remove_event"]
+	return log_proposal_ratio 
+
+def compute_probability_acceptance(move_type,
+	info,
+	tree,
+	new_tree,
+	beta):
+
+	if info["success"] == False:
+		p_accept = 0
+	else:
+		log_proposal_ratio = compute_log_proposal_ratio(move_type,
+			info,
+			tree,
+			new_tree)
+		if move_type == "modify_sample_attachments":
+			log_prior_ratio = 0
+		else:
+			log_prior_ratio = new_tree.get_log_prior()-tree.get_log_prior()
+		
+		if math.isinf(log_prior_ratio):
+			return 0 
+		log_likelihood_ratio = new_tree.get_log_likelihood()-tree.get_log_likelihood()
+		p_accept = min(1, np.exp(beta*(log_prior_ratio+log_likelihood_ratio)+log_proposal_ratio))
+
+	return p_accept
+
+############## SINGLE CHAIN MCMC ##############
+
+def MCMC(tree_start,moves,move_weights,config,n_samples,max_proposed_moves = 10**6,beta=1):
 	list_trees = [copy.deepcopy(tree_start)]
 	tree = tree_start
-	for i in range(n_iter):
-		if i%1000 == 0:
-			print(i, "iterations out of", n_iter)
-		moves_allowed = ["add_event","swap_events_2_nodes"] #TODO: we should not allow to swap 2 nodes with the same events
+	i = 0
+	while ((i < max_proposed_moves) and len(list_trees) < n_samples):
+		#Get moves_allowed at this iteration
+		moves_allowed = [] 
+		if "add_event" in moves:
+			moves_allowed.append("add_event")
+		if "swap_events_2_nodes" in moves:
+			moves_allowed.append("swap_events_2_nodes") #TODO: we should not allow to swap 2 nodes with the same events
+		if "modify_sample_attachments" in moves:
+			moves_allowed.append("modify_sample_attachments")
 		if tree.get_number_events() !=0:
-			moves_allowed.append("remove_event")
+			if "remove_event" in moves:
+				moves_allowed.append("remove_event")
+			if "remove_then_add_event" in moves:
+				moves_allowed.append("remove_then_add_event")
+
+		#Select move type
 		p = [move_weights[mv] for mv in moves_allowed]
 		p = np.array(p)/np.sum(p)
 		move_type = np.random.choice(moves_allowed,p = p)
+		
+		#Do move
 		new_tree,info = move(tree,move_type)
-		print("move_type",move_type)
-		#print("info", info)
-		if move_type == "swap_events_2_nodes":
-			#symetrical move
-			log_proposal_ratio = 0
-		else:
-			if info["success"] == False:
-				continue
+		
+		#Compute probability of accepting move
+		p_accept = compute_probability_acceptance(move_type,
+			info,
+			tree,
+			new_tree,
+			beta)
 
-			event = info["event"]
-			for j in range(len(tree.nodes)):
-				if tree.nodes[j].id_ == info["node.id_"]:
-					if move_type == "add_event":
-						node_to_add_event = tree.nodes[j]
-						node_to_remove_event = new_tree.nodes[j]
-					else:
-						node_to_add_event = new_tree.nodes[j]
-						node_to_remove_event = tree.nodes[j]
-
-					break
-
-			if move_type == "add_event":
-				log_p_add_event = p_add_event(tree,node_to_add_event,event)
-				log_p_remove_event = - np.log(new_tree.get_number_events())
-				
-				log_p_forw_mv = np.log(move_weights[move_type]) + log_p_add_event
-				log_p_back_mv = np.log(move_weights["remove_event"]) + log_p_remove_event
-				#print("log_p_add_event", log_p_add_event,"log_p_remove_event", log_p_remove_event)
-			else:
-				if node_to_remove_event.parent is None:
-					print("node_to_remove_event is root")
-				else:
-					print("profile parent node", node_to_remove_event.parent.get_profile())
-				print("events among which it is removed", [str(ev) for ev in node_to_remove_event.events])
-				log_p_add_event = p_add_event(new_tree,node_to_add_event,event)
-				log_p_remove_event = - np.log(tree.get_number_events())
-
-				log_p_forw_mv = np.log(move_weights[move_type]) + log_p_remove_event
-				log_p_back_mv = np.log(move_weights["add_event"]) + log_p_add_event
-
-				#print("log_prior_ratio",new_tree.get_log_prior()-tree.get_log_prior())
-				#print("log_likelihood_ratio",new_tree.get_log_likelihood()-tree.get_log_likelihood())
-				#print("log_proposal_ratio",log_p_back_mv-log_p_forw_mv )
-
-			log_proposal_ratio = log_p_back_mv-log_p_forw_mv 
-
-		log_prior_ratio = new_tree.get_log_prior()-tree.get_log_prior()
-		if math.isinf(log_prior_ratio):
-			continue
-		log_likelihood_ratio = new_tree.get_log_likelihood()-tree.get_log_likelihood()
-		p_accept = min(1, np.exp(log_prior_ratio+log_likelihood_ratio+log_proposal_ratio))
-		#print("log_prior_ratio", log_prior_ratio, "log_likelihood_ratio", log_likelihood_ratio, "log_proposal_ratio", log_proposal_ratio)
-		#print("p_accept",p_accept)
-		if np.random.choice(2, p=[1-p_accept,p_accept]):
-			#print(move_type, "accepted")
-			#print("log_prior_ratio",log_prior_ratio)
-			#print("log_likelihood_ratio",log_likelihood_ratio)
-			#print("log_proposal_ratio",log_proposal_ratio)
-			#print()
-			list_trees.append(copy.deepcopy(new_tree))
-			tree = new_tree
-		#print(i, 'p_acceptance:', (len(list_trees)-1)/(i+1))
-	return list_trees
-
-def inference_tree_known(tree_start,config,n_iter):
-	list_trees = [copy.deepcopy(tree_start)]
-	tree = tree_start
-	for i in range(n_iter):
-		new_tree = move(tree,"modify_sample_attachments")
-		#symetrical move and only modifies likelihood
-		#TODO: I should improve this since only 2 terms in the likelihood are modified
-		p_accept = min(1, np.exp(new_tree.get_log_likelihood()-tree.get_log_likelihood()))
-		print(tree.get_log_likelihood())
+		#Decision to accept it
 		if np.random.choice(2, p=[1-p_accept,p_accept]):
 			list_trees.append(copy.deepcopy(new_tree))
 			tree = new_tree
-
-		print(i, 'p_acceptance:', (len(list_trees)-1)/(i+1))
-
+			print("n_samples",  len(list_trees), "out of", n_samples)
+		i+=1
 	return list_trees
 
-def simulation_tree_known(number_nodes,
+############## MC3 ##############
+
+def MC3(moves, tree_start,move_weights,config,n_iter_cycle,n_cycles,list_beta):
+	#TODO: change definition n_iter_cycle such that number of accepted moves and not number of proposed moves
+
+	list_trees = dict()
+	tree_start_chain = dict()
+	for beta in list_beta:
+		list_trees[beta] = []
+		tree_start_chain[beta] = tree_start
+
+	for i in range(n_cycles):
+		print("cycle:", i)
+		for beta in list_beta:
+			print("beta:", beta, "tree start")
+			print(tree_start_chain[beta])
+			list_trees_cycle = MCMC(tree_start_chain[beta],
+				moves,
+				move_weights,
+				config,
+				n_iter_cycle,
+				beta = beta)
+			list_trees[beta].extend(copy.deepcopy(list_trees_cycle))
+			tree_start_chain[beta] = copy.deepcopy(list_trees_cycle[-1])
+
+		#choose 2 chains at random
+		(beta_1,beta_2) = np.random.choice(list_beta,size = 2,replace = False)
+		print("beta_1",beta_1,"beta_2",beta_2)
+		p_exchange = min(1,np.exp((beta_1-beta_2)*(tree_start_chain[beta_2].get_log_posterior() - tree_start_chain[beta_1].get_log_posterior())))
+		print("p_exchange",p_exchange)
+		print("posterior 1", tree_start_chain[beta_1].get_log_posterior())
+		print("posterior 2", tree_start_chain[beta_2].get_log_posterior())
+		print('tree_1')
+		print(tree_start_chain[beta_1])
+		print('tree_2')
+		print(tree_start_chain[beta_2])
+
+		temp = tree_start_chain[beta_1]
+		tree_start_chain[beta_1] = tree_start_chain[beta_2]
+		tree_start_chain[beta_2] = temp
+	return list_trees[1]
+
+############## SIMULATION ##############
+
+def simulation(number_nodes,
 	n_reads_sample,
 	config,
-	n_iter):
+	move_weights,
+	setup_simulation,
+	n_cycles,
+	n_iter_cycle,
+	list_beta):
 
-	tree = Tree(number_nodes,config) # generates a tree with random topology
-	tree.generate_events() # generates a tree with random topology
-	tree_start = copy.deepcopy(tree)
-	tree.generate_samples(n_reads_sample) # Assigns randomly a sample to a node and samples the reads per segment from the copy number profile
-	read_counts = []
-	for node in tree.nodes:
-		for sample in node.samples:
-			read_counts.append(sample.read_count)
-	tree_start.randomly_assign_samples(read_counts)
-	list_trees = inference_tree_known(tree_start,config,n_iter)
-	for i,t in enumerate(list_trees):
-		print(i,t.get_log_likelihood())
+	if setup_simulation == "tree_known":
+		tree = Tree(number_nodes,config) # generates a tree with random topology
+		tree.generate_events() # generates a tree with random topology
+		tree_start = copy.deepcopy(tree)
+		tree.generate_samples(n_reads_sample) # Assigns randomly a sample to a node and samples the reads per segment from the copy number profile
+		read_counts = []
+		for node in tree.nodes:
+			for sample in node.samples:
+				read_counts.append(sample.read_count)
+		tree_start.randomly_assign_samples(read_counts)
 
-	print(tree_start)
+		moves = ["modify_sample_attachments"]
+
+	elif setup_simulation == "tree_topology_and_sample_assigments_known":
+		tree = Tree(number_nodes,config) # generates a tree with random topology
+		tree.generate_events() # generates a tree with random topology
+		tree.generate_samples(n_reads_sample)
+
+		tree_start = copy.deepcopy(tree)
+		for node in tree_start.nodes:
+			node.events = []
+		tree_start._update_profiles()
+		moves = ["add_event","remove_event"]
+
+
+	print("tree simulation, post",tree.get_log_posterior())
 	print(tree)
-	print(list_trees[-1])
+	print()
 
-def simulation_tree_topology_and_sample_assigments_known(number_nodes,
-	n_reads_sample,
-	config,
-	n_iter,
-	move_weights):
-	
-	tree = Tree(number_nodes,config) # generates a tree with random topology
-	tree.generate_events() # generates a tree with random topology
-	tree.generate_samples(n_reads_sample)
-	tree_start = copy.deepcopy(tree)
-	for node in tree_start.nodes:
-		node.events = []
-	tree_start._update_profiles()
-	list_trees = inference_tree_topology_and_sample_assigments_known(tree_start,move_weights,config,n_iter)
+	if len(list_beta) == 1:
+		list_trees = MCMC(tree_start,
+			moves,
+			move_weights,
+			config,
+			n_iter_cycle)
+
+	else:
+		list_trees = MC3(moves,
+			tree_start,
+			move_weights,
+			config,
+			n_iter_cycle,
+			n_cycles,
+			list_beta)
+	for j,t in enumerate(list_trees):
+		correct_tree = True
+		for i in range(len(tree_start.nodes)):
+			if np.any((tree.nodes[i].get_profile() - t.nodes[i].get_profile())!=0):
+				correct_tree = False
+				break
+		if correct_tree: print("got original tree at MCMC sample", j)
+	best_post = list_trees[0].get_log_posterior()
+	best_tree = list_trees[0]
+
 	for i,t in enumerate(list_trees):
-		print(i,t.get_log_posterior())
+		post = t.get_log_posterior()
+		print("Posterior distributions")
+		print(i,post)
+		if post > best_post:
+			best_post = post
+			best_tree = t
+	print("tree_start")
 	print(tree_start)
+	print()
+	print("tree simulation, post",tree.get_log_posterior())
 	print(tree)
-	print(list_trees[-1])
-	print("posterion tree used for simulation:")
-	print(tree.get_log_posterior())
+	print()
+	print("best_tree, post:",best_post)
+	print(best_tree)
 
+	#node_id = 2
+	#new_tree,info = move(list_trees[-1],'add_event', node = )
 
-number_nodes = 9
+number_nodes = 10
 number_samples = 10
-n_reads_sample = 10*np.ones(number_samples)
-config = {'number_segments':20, 'p_new_event': 0.5}
+n_reads_sample = 1000*np.ones(number_samples)
+config = {'number_segments':5, 'p_new_event': 0.4}
 config['length_segments'] = np.ones(config['number_segments'])
 n_iter = 10000
 
-move_weights = {"swap_events_2_nodes":1,"add_event":1,"remove_event":1,"modify_sample_attachments":1}
+move_weights = {"swap_events_2_nodes":1,"add_event":1,"remove_event":1,"remove_then_add_event":1,"modify_sample_attachments":1}
 
-simulation_tree_topology_and_sample_assigments_known(number_nodes,
+#MC3 parameters
+n_cycles = 3
+n_iter_cycle = 100
+list_beta = [1,1/2]
+#list_beta = [1,1/1.5,1/2,1/2.5]
+#list_beta = [1]
+
+setup_simulation = "tree_topology_and_sample_assigments_known"
+#setup_simulation = "tree_known"
+
+simulation(number_nodes,
 	n_reads_sample,
 	config,
-	n_iter,
-	move_weights)
+	move_weights,
+	setup_simulation,
+	n_cycles,
+	n_iter_cycle,
+	list_beta)

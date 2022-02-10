@@ -46,8 +46,11 @@ class Sample():
 
 	def get_log_likelihood(self):
 		#TODO: vectorise instead of for loop
-		#TODO: check that it is working
 
+		#TODO: change when mutlipeo chromosomes
+		if np.all(self.node.get_profile() == 0):
+			return float('-inf')
+		
 		self.set_p_read()
 		L = 0
 		for i in range(len(self.p_read)):

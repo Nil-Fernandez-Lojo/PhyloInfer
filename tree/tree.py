@@ -95,6 +95,9 @@ class Tree():
 	def generate_events(self):
 		self._DFS(self.root,'sample_events')
 
+	def update_events(self):
+		self._DFS(self.root,'update_events')
+
 	def generate_samples(self,n_reads_sample):
 		for i in range(len(n_reads_sample)):
 			node = self.nodes[np.random.randint(self.number_nodes)]
@@ -149,7 +152,7 @@ class Tree():
 		#Unnormalised (i.e. up to an additive constant)
 		log_prior = self.get_log_prior()
 		log_likelihood = self.get_log_likelihood()
-		print('log_prior:',log_prior,", log_likelihood:",log_likelihood)
+		#print('log_prior:',log_prior,", log_likelihood:",log_likelihood)
 		return log_prior + log_likelihood
 
 	def _DFS(self,node,method_name):

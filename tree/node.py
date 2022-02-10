@@ -1,7 +1,42 @@
 import numpy as np
-
+import copy
 from tree.util import events_to_vector,N_events_combinations
 from tree.event import Event, sample_events
+
+def change_profile_to_events(change_profile,regions_available):
+	events = []
+	previous_change = 0
+	segments = []
+
+	for seg in regions_available:
+		change = change_profile[seg]
+		#if outside event
+		if change == 0:
+			# if end of event
+			if previous_change != 0:
+				events.append(Event(copy.copy(segments),gain))
+				segments = []
+		
+		#if inside event	
+		else:
+			#if continue same event
+			if change == previous_change:
+				segments.append(seg)
+
+			# otherwise there is a new event
+			else:
+				if previous_change != 0:
+					events.append(Event(copy.copy(segments),gain))
+					segments = []
+
+				segments.append(seg)
+				gain = (change + 1)/2
+		previous_change = change
+	
+	if previous_change != 0:
+		events.append(Event(copy.copy(segments),gain))	
+
+	return events
 
 def get_regions_available_profile(profile):
 	"""
@@ -119,13 +154,32 @@ class Node():
 		change_profile = events_to_vector(self.events,self.config['number_segments'])
 		self.profile += change_profile
 
+	def update_events(self):
+		#This is needed for when a move 
+		if len(self.events) <2:
+			return
+
+		if self.parent is None:
+			regions_available = np.arange(self.config['number_segments'])
+		else:
+			regions_available = get_regions_available_profile(self.parent.get_profile())
+
+		change_profile = events_to_vector(self.events,self.config['number_segments'])
+		self.events = change_profile_to_events(change_profile,regions_available)
+
 	def get_log_prior_events(self,update = False):
 		if update:
-			#check if event spans regions deleted, if so prior equal zero
 			if self.parent is None:
 				regions_available = np.arange(self.config['number_segments'])
 			else:
 				regions_available = get_regions_available_profile(self.parent.get_profile())
+			
+			#If all DNA material removed
+			#TODO: need to change this for when multiuple chr
+			if np.all(self.get_profile() == 0):
+				return float("-inf")
+
+			#check if event spans regions deleted, if so prior equal zero
 			for event in self.events:
 				if not set(event.segments).issubset(regions_available):
 					return float("-inf")

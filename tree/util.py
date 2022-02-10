@@ -17,7 +17,7 @@ def events_to_vector(events,n_seg):
 	vector = np.zeros(n_seg)
 	for event in events:
 		vector[event.segments] = -1 + 2*event.gain
-	return vector
+	return vector 
 
 def update_reagions_available_event(regions_available,event,region_event_idx = None):
 	"""
