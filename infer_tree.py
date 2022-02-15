@@ -20,7 +20,7 @@ def compute_log_proposal_ratio(move_type,
 	tree,
 	new_tree):
 
-	if move_type  in ["swap_events_2_nodes","modify_sample_attachments"]:
+	if move_type  in ["swap_events_2_nodes","modify_sample_attachments", "prune_and_reatach"]:
 		log_proposal_ratio = 0
 		return 0
 	else:
@@ -35,7 +35,6 @@ def compute_log_proposal_ratio(move_type,
 					node_to_remove_event = tree.nodes[j]
 
 				break
-
 		if move_type == "add_event":
 			log_p_add_event = p_add_event(tree,node_to_add_event,event)
 			log_p_remove_event = - np.log(new_tree.get_number_events())
@@ -66,17 +65,33 @@ def compute_probability_acceptance(move_type,
 	if info["success"] == False:
 		p_accept = 0
 	else:
+		if move_type == "modify_sample_attachments":
+			log_prior_ratio = 0
+		else:
+			#TODO: for prune_and_reatach it is either 0 or -inf, we do not have to recompute everything
+			log_prior_ratio = new_tree.get_log_prior()-tree.get_log_prior()
+			# print("log_prior_ratio",log_prior_ratio)
+			# print("WTF","new_tree.get_log_prior()-tree.get_log_prior()",new_tree.get_log_prior()-tree.get_log_prior())
+		# print("move_type",move_type)
+		# print("log_prior_ratio", log_prior_ratio)
+		# print("tree")
+		# print(tree)
+		# print("new_tree")
+		# print(new_tree)
+		if math.isinf(log_prior_ratio):
+			return 0
+
 		log_proposal_ratio = compute_log_proposal_ratio(move_type,
 			info,
 			tree,
 			new_tree)
-		if move_type == "modify_sample_attachments":
-			log_prior_ratio = 0
-		else:
-			log_prior_ratio = new_tree.get_log_prior()-tree.get_log_prior()
-		
-		if math.isinf(log_prior_ratio):
-			return 0 
+
+
+		# print("new_tree")
+		# print(new_tree)
+		# print("new_tree.get_log_prior()",new_tree.get_log_prior(),"tree.get_log_prior()",tree.get_log_prior())
+		# print("new_tree.get_log_prior()-tree.get_log_prior()",new_tree.get_log_prior()-tree.get_log_prior())
+		# print("log_prior_ratio",log_prior_ratio)
 		log_likelihood_ratio = new_tree.get_log_likelihood()-tree.get_log_likelihood()
 		p_accept = min(1, np.exp(beta*(log_prior_ratio+log_likelihood_ratio)+log_proposal_ratio))
 
@@ -97,6 +112,8 @@ def MCMC(tree_start,moves,move_weights,config,n_samples,max_proposed_moves = 10*
 			moves_allowed.append("swap_events_2_nodes") #TODO: we should not allow to swap 2 nodes with the same events
 		if "modify_sample_attachments" in moves:
 			moves_allowed.append("modify_sample_attachments")
+		if "prune_and_reatach" in moves:
+			moves_allowed.append("prune_and_reatach")
 		if tree.get_number_events() !=0:
 			if "remove_event" in moves:
 				moves_allowed.append("remove_event")
@@ -122,7 +139,7 @@ def MCMC(tree_start,moves,move_weights,config,n_samples,max_proposed_moves = 10*
 		if np.random.choice(2, p=[1-p_accept,p_accept]):
 			list_trees.append(copy.deepcopy(new_tree))
 			tree = new_tree
-			print("n_samples",  len(list_trees), "out of", n_samples)
+			#print("n_samples",  len(list_trees), "out of", n_samples)
 		i+=1
 	return list_trees
 
@@ -203,6 +220,33 @@ def simulation(number_nodes,
 		tree_start._update_profiles()
 		moves = ["add_event","remove_event"]
 
+	elif setup_simulation == "tree_topology_known":
+		tree = Tree(number_nodes,config) # generates a tree with random topology
+		tree_start = copy.deepcopy(tree)
+		tree.generate_events() # generates a tree with random topology
+		tree.generate_samples(n_reads_sample)
+
+		read_counts = []
+		for node in tree.nodes:
+			for sample in node.samples:
+				read_counts.append(sample.read_count)
+		tree_start.randomly_assign_samples(read_counts)
+
+		moves = ["modify_sample_attachments","add_event","remove_event"]
+
+	elif setup_simulation == "size_tree_known":
+		tree = Tree(number_nodes,config) # generates a tree with random topology
+		tree.generate_events() # generates a tree with random topology
+		tree.generate_samples(n_reads_sample)
+		tree_start = Tree(number_nodes,config)
+
+		read_counts = []
+		for node in tree.nodes:
+			for sample in node.samples:
+				read_counts.append(sample.read_count)
+		tree_start.randomly_assign_samples(read_counts)
+
+		moves = ["modify_sample_attachments","add_event","remove_event","prune_and_reatach"]
 
 	print("tree simulation, post",tree.get_log_posterior())
 	print(tree)
@@ -252,23 +296,24 @@ def simulation(number_nodes,
 	#node_id = 2
 	#new_tree,info = move(list_trees[-1],'add_event', node = )
 
-number_nodes = 10
-number_samples = 10
-n_reads_sample = 1000*np.ones(number_samples)
-config = {'number_segments':5, 'p_new_event': 0.4}
+number_nodes = 5
+number_samples = 40
+n_reads_sample = 10000*np.ones(number_samples)
+config = {'number_segments':5, 'p_new_event': 0.6}
 config['length_segments'] = np.ones(config['number_segments'])
-n_iter = 10000
 
-move_weights = {"swap_events_2_nodes":1,"add_event":1,"remove_event":1,"remove_then_add_event":1,"modify_sample_attachments":1}
+move_weights = {"swap_events_2_nodes":1,"add_event":1,"remove_event":1,"remove_then_add_event":1,"modify_sample_attachments":1,"prune_and_reatach":1}
 
 #MC3 parameters
-n_cycles = 3
-n_iter_cycle = 100
-list_beta = [1,1/2]
+n_cycles = 5
+n_iter_cycle = 1000
+#list_beta = [1,1/2]
 #list_beta = [1,1/1.5,1/2,1/2.5]
-#list_beta = [1]
+list_beta = [1]
 
-setup_simulation = "tree_topology_and_sample_assigments_known"
+setup_simulation = "size_tree_known"
+#setup_simulation = "tree_topology_known"
+#setup_simulation = "tree_topology_and_sample_assigments_known"
 #setup_simulation = "tree_known"
 
 simulation(number_nodes,

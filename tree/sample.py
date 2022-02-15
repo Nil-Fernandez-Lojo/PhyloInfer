@@ -60,6 +60,8 @@ class Sample():
 			else:
 				L+= self.read_count[i]*np.log(self.p_read[i])
 				if (math.isnan(L)):
+					print(self.node.get_profile())
 					print(self.read_count[i], self.p_read[i])
+					print("NaN value encountered in log likelihood")
 					exit()
 		return L

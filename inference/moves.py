@@ -69,15 +69,11 @@ def p_add_event(tree,node,event):
 		regions_available = get_regions_available_profile(node.parent.get_profile())
 
 	K = len(regions_available)
-	#print("node.events", [str(ev) for ev in node.events])
 	if len(node.events) == 0:
 		#print("K", K, "n_nodes", n_nodes)
 		return -np.log(K*(K+1)*n_nodes)
 	else:
 		potential_region_events = get_regions_new_event(regions_available,node.events)
-		# print("event",event)
-		# print("regions_available",regions_available)
-		# print("node.events",[str(ev) for ev in node.events])
 		# if node.parent is not None:
 		# 	print("parent profile",node.parent.get_profile())
 		# print("potential_region_events",potential_region_events)
@@ -113,6 +109,28 @@ def p_add_event(tree,node,event):
 		#print("region_event",region_event)
 		return -np.log(n_nodes)-np.log(len(potential_region_events))+gain_factor-np.log(K*(K+1))
 
+def update_tree_after_move(tree,info):
+	#TODO: these 2 methods should only be applied to children nodes of modified nodes
+	if info["move_type"] in ['add_event', 'remove_event', 'modify_event']:
+		node_ids = [info["node.id_"]]
+	elif info["move_type"] == 'prune_and_reatach':
+		node_ids = [info["root_subtree.id_"]]
+	elif info["move_type"] == 'swap_events_2_nodes':
+		node_ids = [info["node_0.id_"], info["node_1.id_"]]
+	elif info["move_type"] == 'modify_sample_attachments':
+		return
+
+	root_nodes_to_apply_updates = []
+	for i in range(len(tree.nodes)):
+		if tree.nodes[i].id_ in node_ids:
+			root_nodes_to_apply_updates.append(tree.nodes[i])
+			if len(root_nodes_to_apply_updates) == len(node_ids):
+				break
+	
+	for node in root_nodes_to_apply_updates:
+		tree._update_profiles(node)
+		tree.update_events(node)	
+
 ################ general move function ################
 def move(tree,move_type,
 	node_id = None,
@@ -133,16 +151,46 @@ def move(tree,move_type,
 		info = modify_event(tree_modified)
 	elif move_type == 'modify_sample_attachments':
 		info = modify_sample_attachments(tree_modified,sample_idx = sample_idx,new_node_id = node_id)
+	info['move_type'] = move_type
+	update_tree_after_move(tree_modified,info)
 	
-	#TODO: these 2 methods should only be applied to children nodes of modified nodes 
-	tree_modified.update_events()
-	tree_modified._update_profiles()
 	return tree_modified,info
 
 ################ different moves ################
-def prune_and_reatach(tree):
-	#TODO
-	pass
+def prune_and_reatach(tree,root_subtree_idx = None,new_parent_subtree_id = None):
+	#TODO: we could end up with the same tree if we prune and reatach to the same point, I have to change that
+	#TODO: add preference for smaller subtrees like in SCICONE
+
+	if root_subtree_idx is None:
+		#TODO: change this not clean
+		idx = np.random.choice(len(tree.nodes),replace = False, size = 2)
+		if tree.nodes[idx[0]].parent is not None:
+			root_subtree = tree.nodes[idx[0]]
+		else:
+			root_subtree = tree.nodes[idx[1]]
+	else:
+		root_subtree = tree.nodes[root_subtree_idx]
+
+	if new_parent_subtree_id is None:
+		subtree_nodes_id = tree.get_children_id(root_subtree)
+		subtree_nodes_id.append(root_subtree.id_)
+		remaining_nodes = []
+		for node in tree.nodes:
+			if node.id_ not in subtree_nodes_id:
+				remaining_nodes.append(node)
+		new_parent_subtree = remaining_nodes[np.random.choice(len(remaining_nodes))]
+	else:
+		new_parent_subtree = tree.nodes[new_parent_subtree_id]
+
+	for n in root_subtree.parent.children:
+		if n == root_subtree:
+			root_subtree.parent.children.remove(n)
+			break
+
+	root_subtree.parent = new_parent_subtree
+	new_parent_subtree.children.append(root_subtree)
+	additional_info = {"root_subtree.id_":root_subtree.id_, "new_parent_subtree.id_":new_parent_subtree.id_,'success':True}
+	return additional_info
 
 def swap_events_2_nodes(tree,node_0_id = None,node_1_id = None):
 	if (node_0_id is None) and (node_1_id is None):

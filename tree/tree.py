@@ -95,8 +95,11 @@ class Tree():
 	def generate_events(self):
 		self._DFS(self.root,'sample_events')
 
-	def update_events(self):
-		self._DFS(self.root,'update_events')
+	def update_events(self,node = 'root'):
+		if node == "root":
+			self._DFS(self.root,'update_events')
+		else:
+			self._DFS(node,'update_events')
 
 	def generate_samples(self,n_reads_sample):
 		for i in range(len(n_reads_sample)):
@@ -161,8 +164,18 @@ class Tree():
 		for child in node.children:
 			self._DFS(child,method_name)
 
-	def _update_profiles(self):
-		self._DFS(self.root,'update_profile')
+	def get_children_id(self,node):
+		children_id = []
+		for child in node.children:
+			children_id.append(child.id_)
+			children_id.extend(self.get_children_id(child))
+		return children_id
+
+	def _update_profiles(self,node = "root"):
+		if node == "root":
+			self._DFS(self.root,'update_profile')
+		else:
+			self._DFS(node,'update_profile')
 
 	def __str__(self):
 		def DFS_str(depth,node,string):
@@ -173,7 +186,7 @@ class Tree():
 				string = DFS_str(depth+1,child,string)
 			return string
 
-		self._update_profiles()
+		self._update_profiles() #TODO remove
 		return DFS_str(0,self.root,'')
 
 def decode_prufer(p):

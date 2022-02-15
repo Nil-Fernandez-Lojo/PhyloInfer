@@ -163,20 +163,33 @@ class Node():
 			regions_available = np.arange(self.config['number_segments'])
 		else:
 			regions_available = get_regions_available_profile(self.parent.get_profile())
+		
+		#TODO this is not clean
+		#check if now impossible events after change of topology tree
+		#Then do not update events since this is not done correctly in that case...
+		#In this case we do not update the events vector
+		for event in self.events:
+			for segment in event.segments:
+				if segment not in regions_available:
+					return
 
 		change_profile = events_to_vector(self.events,self.config['number_segments'])
 		self.events = change_profile_to_events(change_profile,regions_available)
 
-	def get_log_prior_events(self,update = False):
+	def get_log_prior_events(self,update = True):
 		if update:
 			if self.parent is None:
 				regions_available = np.arange(self.config['number_segments'])
 			else:
 				regions_available = get_regions_available_profile(self.parent.get_profile())
-			
+
+			profile = self.get_profile()
+			if np.any(profile <0):
+				return float("-inf")
+
 			#If all DNA material removed
 			#TODO: need to change this for when multiuple chr
-			if np.all(self.get_profile() == 0):
+			if np.all(profile == 0):
 				return float("-inf")
 
 			#check if event spans regions deleted, if so prior equal zero
