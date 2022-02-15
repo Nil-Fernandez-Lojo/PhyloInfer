@@ -127,6 +127,8 @@ class Node():
 		self.config = config
 		self.profile = 2*np.ones(config['number_segments'])
 		self.log_prior = 0
+		self.p_read = None
+		self.update_p_read()
 
 	def add_child(self,node):
 		self.children.append(node)
@@ -153,6 +155,7 @@ class Node():
 		#add events to profile
 		change_profile = events_to_vector(self.events,self.config['number_segments'])
 		self.profile += change_profile
+		self.update_p_read()
 
 	def update_events(self):
 		#This is needed for when a move 
@@ -217,6 +220,25 @@ class Node():
 			if n_events>0:
 				self.log_prior -= np.log(N_events_combinations(n_events,K))# due to possible combinations of events 
 		return self.log_prior
+
+	def update_log_likelihood_samples(self):
+		for sample in self.samples:
+			sample.update_log_likelihood()
+
+	def get_log_likelihood_samples(self,update=True):
+		#TODO, we should update it so that when modify_sample_assignment move, not all samples attached to node are updated 
+		L = 0
+		for sample in self.samples:
+			L_sample = sample.get_log_likelihood(update = update)
+			if math.isinf(L_sample):
+				return float('-inf')
+			else:
+				L += L_sample
+		return L
+
+	def update_p_read(self):
+		self.p_read = np.multiply(self.config['length_segments'],self.get_profile())
+		self.p_read = self.p_read/np.sum(self.p_read)
 
 	def get_profile(self):
 		return np.copy(self.profile)

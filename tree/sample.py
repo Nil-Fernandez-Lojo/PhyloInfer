@@ -21,8 +21,6 @@ class Sample():
 
 	Methods
 	-------
-	set_p_read:
-		updates the p_read by using the CN porfile of the corresponding node
 	generate_sample_from_CN:
 		generates a random read_count from p_read and n_reads_sample in the config file
 	get_log_likelihood:
@@ -33,35 +31,37 @@ class Sample():
 		self.config = config
 		self.node = node
 		self.read_count = read_count
-		self.p_read = self.set_p_read()
+		self.log_likelihood = None
+		self.update_log_likelihood()
 	
-	def set_p_read(self):
-		self.p_read = np.multiply(self.config['length_segments'],self.node.get_profile())
-		self.p_read = self.p_read/np.sum(self.p_read)
 
 	def generate_read_counts_from_CN(self,total_number_reads):
 		#TODO case when everything deleted!
-		self.set_p_read()
-		self.read_count = np.random.multinomial(total_number_reads,self.p_read)
+		self.node.update_p_read()
+		self.read_count = np.random.multinomial(total_number_reads,self.node.p_read)
 
-	def get_log_likelihood(self):
+	def update_log_likelihood(self):
 		#TODO: vectorise instead of for loop
-
 		#TODO: change when mutlipeo chromosomes
+		if self.read_count is None:
+			return
 		if np.all(self.node.get_profile() == 0):
-			return float('-inf')
+			self.log_likelihood = float('-inf')
+			return 
 		
-		self.set_p_read()
-		L = 0
-		for i in range(len(self.p_read)):
-			if self.p_read[i]==0:
-				if self.read_count[i]!=0:
-					return float('-inf')
+		self.log_likelihood = 0
+		for i in range(len(self.node.p_read)):
+			if (self.node.p_read[i]==0) and (self.read_count[i]!=0):
+				self.log_likelihood = float('-inf')
+				return
 			else:
-				L+= self.read_count[i]*np.log(self.p_read[i])
-				if (math.isnan(L)):
-					print(self.node.get_profile())
-					print(self.read_count[i], self.p_read[i])
+				self.log_likelihood+= self.read_count[i]*np.log(self.node.p_read[i])
+				if (math.isnan(self.log_likelihood)):
+					print(self.read_count[i], self.node.p_read[i])
 					print("NaN value encountered in log likelihood")
 					exit()
-		return L
+	
+	def get_log_likelihood(self,update = False):
+		if update:
+			self.update_log_likelihood()
+		return self.log_likelihood

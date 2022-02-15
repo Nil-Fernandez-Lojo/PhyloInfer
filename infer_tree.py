@@ -1,5 +1,5 @@
 from tree.tree import Tree
-from inference.moves import move,p_add_event
+from inference.moves import move,p_add_event,get_root_nodes_affected_by_move
 import numpy as np
 import copy
 import math

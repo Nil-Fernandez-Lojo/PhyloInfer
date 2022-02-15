@@ -145,7 +145,15 @@ class Tree():
 		sample_assignation_term = - n_samples*np.log(self.number_nodes)
 		return tree_size_term + tree_topology_term + events_term + sample_assignation_term
 
-	def get_log_likelihood(self):
+	def update_samples_log_likelihood(self,root_nodes_to_update = ["root"]):
+		for node in root_nodes_to_update:
+			if node == "root":
+				node = self.root
+			self._DFS(node,'update_log_likelihood_samples')
+
+	def get_log_likelihood(self,root_nodes_to_update = ["root"]):
+		self.update_samples_log_likelihood(root_nodes_to_update = root_nodes_to_update)
+		
 		log_likelihood = 0
 		for sample in self.samples:
 			log_likelihood += sample.get_log_likelihood()

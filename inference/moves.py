@@ -109,8 +109,7 @@ def p_add_event(tree,node,event):
 		#print("region_event",region_event)
 		return -np.log(n_nodes)-np.log(len(potential_region_events))+gain_factor-np.log(K*(K+1))
 
-def update_tree_after_move(tree,info):
-	#TODO: these 2 methods should only be applied to children nodes of modified nodes
+def get_root_nodes_affected_by_move(tree,info):
 	if info["move_type"] in ['add_event', 'remove_event', 'modify_event']:
 		node_ids = [info["node.id_"]]
 	elif info["move_type"] == 'prune_and_reatach':
@@ -118,7 +117,7 @@ def update_tree_after_move(tree,info):
 	elif info["move_type"] == 'swap_events_2_nodes':
 		node_ids = [info["node_0.id_"], info["node_1.id_"]]
 	elif info["move_type"] == 'modify_sample_attachments':
-		return
+		node_ids = []
 
 	root_nodes_to_apply_updates = []
 	for i in range(len(tree.nodes)):
@@ -126,7 +125,10 @@ def update_tree_after_move(tree,info):
 			root_nodes_to_apply_updates.append(tree.nodes[i])
 			if len(root_nodes_to_apply_updates) == len(node_ids):
 				break
+	return root_nodes_to_apply_updates
 	
+def update_tree_after_move(tree,info):
+	root_nodes_to_apply_updates = get_root_nodes_affected_by_move(tree,info)
 	for node in root_nodes_to_apply_updates:
 		tree._update_profiles(node)
 		tree.update_events(node)	
