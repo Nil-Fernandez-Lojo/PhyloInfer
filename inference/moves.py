@@ -109,15 +109,18 @@ def p_add_event(tree,node,event):
 		#print("region_event",region_event)
 		return -np.log(n_nodes)-np.log(len(potential_region_events))+gain_factor-np.log(K*(K+1))
 
-def get_root_nodes_affected_by_move(tree,info):
+def get_root_nodes_affected_by_move(tree,info,include_sample = False):
 	if info["move_type"] in ['add_event', 'remove_event', 'modify_event']:
 		node_ids = [info["node.id_"]]
-	elif info["move_type"] == 'prune_and_reatach':
+	elif info["move_type"] == 'prune_and_reattach':
 		node_ids = [info["root_subtree.id_"]]
 	elif info["move_type"] == 'swap_events_2_nodes':
 		node_ids = [info["node_0.id_"], info["node_1.id_"]]
 	elif info["move_type"] == 'modify_sample_attachments':
-		node_ids = []
+		if include_sample:
+			node_ids = ["old_node.id_","new_node.id_"]
+		else:
+			node_ids = []
 
 	root_nodes_to_apply_updates = []
 	for i in range(len(tree.nodes)):
@@ -126,9 +129,9 @@ def get_root_nodes_affected_by_move(tree,info):
 			if len(root_nodes_to_apply_updates) == len(node_ids):
 				break
 	return root_nodes_to_apply_updates
-	
+
 def update_tree_after_move(tree,info):
-	root_nodes_to_apply_updates = get_root_nodes_affected_by_move(tree,info)
+	root_nodes_to_apply_updates = get_root_nodes_affected_by_move(tree,info,include_sample = False)
 	for node in root_nodes_to_apply_updates:
 		tree._update_profiles(node)
 		tree.update_events(node)	
@@ -141,8 +144,8 @@ def move(tree,move_type,
 	event_idx_to_remove = None,
 	sample_idx = None):
 	tree_modified = copy.deepcopy(tree)
-	if move_type == 'prune_and_reatach':
-		info = prune_and_reatach(tree_modified)
+	if move_type == 'prune_and_reattach':
+		info = prune_and_reattach(tree_modified)
 	elif move_type == 'swap_events_2_nodes':
 		info = swap_events_2_nodes(tree_modified,node_0_id = node_id,node_1_id = node_1_id)
 	elif move_type == 'add_event':
@@ -159,8 +162,8 @@ def move(tree,move_type,
 	return tree_modified,info
 
 ################ different moves ################
-def prune_and_reatach(tree,root_subtree_idx = None,new_parent_subtree_id = None):
-	#TODO: we could end up with the same tree if we prune and reatach to the same point, I have to change that
+def prune_and_reattach(tree, root_subtree_idx = None, new_parent_subtree_id = None):
+	#TODO: we could end up with the same tree if we prune and reattach to the same point, I have to change that
 	#TODO: add preference for smaller subtrees like in SCICONE
 
 	if root_subtree_idx is None:
@@ -349,4 +352,4 @@ def modify_sample_attachments(tree,sample_idx = None,new_node_id = None):
 	current_node.samples.remove(sample)
 	sample.node = new_node
 	new_node.samples.append(sample)
-	return {"success":True}
+	return {"old_node.id_":current_node.id_,"new_node.id_":new_node.id_,"success":True}
