@@ -9,13 +9,9 @@ from tree.node import get_regions_available_profile
 np.random.seed(2020)
 
 
-# TODO:
-# Give topology but no events nor samples assignments
-# Give tree size
-# True setup
+# TODO: True setup
 
-############## SIDE FUNCTIONS ##############
-
+# SIDE FUNCTIONS
 def compute_log_proposal_ratio(move_type,
                                move_weights,
                                info,
@@ -97,8 +93,7 @@ def compute_probability_acceptance(move_type,
     return p_accept
 
 
-############## SINGLE CHAIN MCMC ##############
-
+# SINGLE CHAIN MCMC
 def mcmc(tree_start, moves, move_weights, n_samples, max_proposed_moves=10 ** 6, beta=1):
     list_trees = [copy.deepcopy(tree_start)]
     tree = tree_start
@@ -146,8 +141,7 @@ def mcmc(tree_start, moves, move_weights, n_samples, max_proposed_moves=10 ** 6,
     return list_trees
 
 
-############## MC3 ##############
-
+# MC3
 def mc3(moves, tree_start, move_weights, n_iter_cycle, n_cycles, list_beta):
     # TODO: change definition n_iter_cycle such that number of accepted moves and not number of proposed moves
 
@@ -189,8 +183,7 @@ def mc3(moves, tree_start, move_weights, n_iter_cycle, n_cycles, list_beta):
     return list_trees[1]
 
 
-############## SIMULATION ##############
-
+# SIMULATION
 def simulation(number_nodes,
                n_reads_sample,
                config,
