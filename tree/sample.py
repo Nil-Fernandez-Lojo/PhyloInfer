@@ -25,13 +25,14 @@ class Sample:
         returns the log likelihood of read_count
     """
 
-    def __init__(self, id_, node, config, read_count=None):
+    def __init__(self, id_, config, node=None, read_count=None):
         self.id_ = id_
         self.config = config
         self.node = node
         self.read_count = read_count
         self.log_likelihood = None
-        self.update_log_likelihood()
+        if node is not None:
+            self.update_log_likelihood()
 
     def generate_read_counts_from_cn(self, total_number_reads):
         # TODO case when everything deleted!
@@ -49,9 +50,12 @@ class Sample:
 
         self.log_likelihood = 0
         for i in range(len(self.node.p_read)):
-            if (self.node.p_read[i] == 0) and (self.read_count[i] != 0):
-                self.log_likelihood = float('-inf')
-                return
+            if self.node.p_read[i] == 0:
+                if self.read_count[i] != 0:
+                    self.log_likelihood = float('-inf')
+                    return
+                else:
+                    continue
             else:
                 self.log_likelihood += self.read_count[i] * np.log(self.node.p_read[i])
                 if math.isnan(self.log_likelihood):
@@ -63,3 +67,7 @@ class Sample:
         if update:
             self.update_log_likelihood()
         return self.log_likelihood
+
+    def unassign(self,remove_from_parent = True):
+        self.node = None
+        self.log_likelihood = None

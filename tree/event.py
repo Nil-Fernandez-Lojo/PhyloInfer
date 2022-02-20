@@ -1,27 +1,6 @@
 import numpy as np
 from tree.util import n_bkp, n_g, c_db
 
-
-# def get_sol_comb_problem(n,d):
-# 	"""
-# 	Get list of all the solution of the following combinatorial problem:
-# 	{x:x in N_0^d, sum(x)=n}
-
-# 	#TODO: this is not optimal, should cache the solutions
-# 	"""
-# 	if (d == 0) or (d>n):
-# 		return []
-# 	elif d == 1:
-# 		return [[n]]
-# 	else:
-# 		sol = []
-# 		for i in range(1,n-d+2):
-# 			partial_sol = get_sol_comb_problem(n-i,d-1)
-# 			for x in partial_sol:
-# 				x.append(i)
-# 			sol.extend(partial_sol)
-# 		return sol
-
 def sample_events(regions_available, p_new_event=0, n_events=None):
     k = len(regions_available)
     if k == 0:

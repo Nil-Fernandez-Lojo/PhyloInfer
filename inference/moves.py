@@ -1,5 +1,5 @@
 from tree.event import sample_events
-from tree.node import get_regions_available_profile
+from tree.node import get_regions_available_profile,Node
 
 import numpy as np
 import copy
@@ -112,6 +112,7 @@ def p_add_event(tree, node, event):
 
 
 def get_root_nodes_affected_by_move(tree, info, include_sample=False):
+    # TODO: if 2, we should check if one is the descendant of the other
     if info["move_type"] in ['add_event', 'remove_event', 'modify_event']:
         node_ids = [info["node.id_"]]
     elif info["move_type"] == 'prune_and_reattach':
@@ -120,9 +121,12 @@ def get_root_nodes_affected_by_move(tree, info, include_sample=False):
         node_ids = [info["node_0.id_"], info["node_1.id_"]]
     elif info["move_type"] == 'modify_sample_attachments':
         if include_sample:
-            node_ids = ["old_node.id_", "new_node.id_"]
+            node_ids = [info["old_node.id_"], info["new_node.id_"]]
         else:
             node_ids = []
+    elif info["move_type"] in ['split_node', "merge_nodes"]:
+        node_ids = [info["parent_node.id_"]]
+
 
     root_nodes_to_apply_updates = []
     for i in range(len(tree.nodes)):
@@ -139,6 +143,41 @@ def update_tree_after_move(tree, info):
         tree._update_profiles(node)
         tree.update_events(node)
 
+def can_be_merged(parent,child):
+    if (len(parent.events) == 0) or (len(child.events) == 0):
+        return True
+
+    #Check if overlapping events
+    seg_events_parent = []
+    for event in parent.events:
+        seg_events_parent.extend(event.segments)
+    seg_events_parent = set(seg_events_parent)
+
+    seg_events_child = []
+    for event in child.events:
+        seg_events_child.extend(event.segments)
+    seg_events_child = set(seg_events_child)
+
+    if len(seg_events_parent.intersection(seg_events_child)) != 0:
+        return False
+
+    # TODO: I do not like this because ideally adjacent events would be merged but then if we do this we can't
+    # compute the log proposal anymore. Moreover in the previous lines of code if a gain cancels a loss, we can't
+    # merge them either, which ideally we should be able to
+    grand_parent_profile = parent.get_parent_profile()
+    regions_available = get_regions_available_profile(grand_parent_profile).tolist()
+
+    list_events = parent.events + child.events
+    list_events.sort(key= lambda x:x.segments[0])
+    for i in range(len(list_events)-1):
+        if  list_events[i].gain == list_events[i+1].gain:
+            end_segment = list_events[i].segments[-1]
+            start_segment = list_events[i+1].segments[0]
+            idx = regions_available.index(end_segment)
+            if regions_available[idx] + 1 == start_segment:
+                return False
+
+    return True
 
 # General move function
 def move(tree, move_type,
@@ -160,33 +199,39 @@ def move(tree, move_type,
         info = modify_event(tree_modified)
     elif move_type == 'modify_sample_attachments':
         info = modify_sample_attachments(tree_modified, sample_idx=sample_idx, new_node_id=node_id)
+    elif move_type == 'split_node':
+        info = split_node(tree_modified,node_id=node_id)
+    elif move_type == 'merge_nodes':
+        info = merge_nodes(tree_modified,parent_node_id=node_id,child_node_id=node_1_id)
+
     info['move_type'] = move_type
-    update_tree_after_move(tree_modified, info)
+    if info["success"]:
+        update_tree_after_move(tree_modified, info)
 
     return tree_modified, info
 
 
 # different moves
 def prune_and_reattach(tree, root_subtree_idx=None, new_parent_subtree_id=None):
-    # TODO: we could end up with the same tree if we prune and reattach to the same point, I have to change that
+    # TODO: if tree of size 1 or 2, there will be an error
     # TODO: add preference for smaller subtrees like in SCICONE
 
     if root_subtree_idx is None:
-        # TODO: change this not clean
-        idx = np.random.choice(len(tree.nodes), replace=False, size=2)
-        if tree.nodes[idx[0]].parent is not None:
-            root_subtree = tree.nodes[idx[0]]
-        else:
-            root_subtree = tree.nodes[idx[1]]
+        nodes = copy.copy(tree.nodes)
+        nodes.remove(tree.root)
+        if len(tree.root.children) == 1:
+            nodes.remove(tree.root.children[0])
+        root_subtree = nodes[np.random.choice(len(nodes))]
     else:
         root_subtree = tree.nodes[root_subtree_idx]
 
     if new_parent_subtree_id is None:
-        subtree_nodes_id = tree.get_children_id(root_subtree)
-        subtree_nodes_id.append(root_subtree.id_)
+        nodes_id_forbidden = tree.get_children_id(root_subtree)
+        nodes_id_forbidden.append(root_subtree.id_)
+        nodes_id_forbidden.append(root_subtree.parent.id_)
         remaining_nodes = []
         for node in tree.nodes:
-            if node.id_ not in subtree_nodes_id:
+            if node.id_ not in nodes_id_forbidden:
                 remaining_nodes.append(node)
         new_parent_subtree = remaining_nodes[np.random.choice(len(remaining_nodes))]
     else:
@@ -197,8 +242,7 @@ def prune_and_reattach(tree, root_subtree_idx=None, new_parent_subtree_id=None):
             root_subtree.parent.children.remove(n)
             break
 
-    root_subtree.parent = new_parent_subtree
-    new_parent_subtree.children.append(root_subtree)
+    new_parent_subtree.add_child(root_subtree)
     additional_info = {"root_subtree.id_": root_subtree.id_, "new_parent_subtree.id_": new_parent_subtree.id_,
                        'success': True}
     return additional_info
@@ -330,14 +374,100 @@ def remove_event(tree, node_id=None, event_idx=None):
     return {"success": True, "node.id_": node.id_, "event": event}
 
 
+def event_can_be_extended(node, event_idx):
+    # TODO: TEST
+
+    parent_profile = node.get_parent_profile()
+    regions_available = list(get_regions_available_profile(parent_profile))
+    index_start = regions_available.index(node.events[event_idx].segments[0])
+    index_end = regions_available.index(node.events[event_idx].segments[-1])
+
+    possible_directions_extensions = []
+
+    # check if can be extended on the left
+    if index_start != 0:
+        #first event
+        if event_idx == 0:
+            possible_directions_extensions.append('left')
+        #previous event opposite direction
+        elif node.events[event_idx-1].gain != node.events[event_idx].gain:
+            if node.events[event_idx - 1].segments[-1] != regions_available[index_start-1]:
+                possible_directions_extensions.append('left')
+        # previous event same direction
+        else:
+            if node.events[event_idx - 1].segments[-1] != regions_available[index_start-2]:
+                possible_directions_extensions.append('left')
+
+    # check if can be extended on the right
+    if index_end != len(regions_available)-1:
+        # last event
+        if event_idx == len(node.events)-1:
+            possible_directions_extensions.append('right')
+        # next event opposite direction
+        elif node.events[event_idx+1].gain != node.events[event_idx].gain:
+            if node.events[event_idx + 1].segments[0] != regions_available[index_end +1]:
+                possible_directions_extensions.append('right')
+        # next event same direction
+        else:
+            if node.events[event_idx + 1].segments[0] != regions_available[index_end + 2]:
+                possible_directions_extensions.append('right')
+
+
+
+    segment_extension = dict()
+    if 'left' in possible_directions_extensions:
+        segment_extension['left'] = regions_available[index_start-1]
+    if 'right' in possible_directions_extensions:
+        segment_extension['right'] = regions_available[index_end+1]
+
+    return possible_directions_extensions,segment_extension
+
+def get_possible_modifications_event(node, event_idx):
+    possible_modifications = []
+    possible_directions_extensions,segment_extension = event_can_be_extended(node, event_idx)
+    # can not be shortened
+    if len(node.events[event_idx].segments) > 1:
+        possible_modifications.append("reduction")
+    if len(possible_directions_extensions)>0:
+        possible_modifications.append("extension")
+    return possible_modifications,possible_directions_extensions,segment_extension
+
 def modify_event(tree):
-    # TODO: finish, not needed in theory
+    # TODO: TEST
     n_events_node = [len(node.events) for node in tree.nodes]
     p = np.array(n_events_node) / np.sum(n_events_node)
     node = tree.nodes[np.random.choice(len(tree.nodes), p=p)]
-    event = node.events[np.random.randint(len(node.events))]
-    # choose if extension or reduction
-    return []
+    event_idx = np.random.randint(len(node.events))
+    event = node.events[event_idx]
+
+    (possible_modifications,
+     possible_directions_extensions,
+     segment_extension) = get_possible_modifications_event(node, event_idx)
+
+    if len(possible_modifications) == 0:
+        return {"success": False, "reason": "selected event could not be modified"}
+
+    modification = np.random.choice(possible_modifications)
+
+    if modification == "reduction":
+        direction = np.random.choice(["left", "right"])
+        if direction == "left":
+            event.segments = event.segments[1:]
+        else:
+            event.segments = event.segments[:-1]
+    else:
+        direction = np.random.choice(possible_directions_extensions)
+        if direction == "left":
+            event.segments = np.insert(event.segments, 0, segment_extension[direction])
+        else:
+            event.segments = np.insert(event.segments, len(event.segments), segment_extension[direction])
+
+    return {"success": True,
+            "node.id_": node.id_,
+            'event_idx': event_idx,
+            "modification": modification,
+            "direction": direction,
+            "possible_modifications": possible_modifications}
 
 
 def modify_sample_attachments(tree, sample_idx=None, new_node_id=None):
@@ -364,3 +494,68 @@ def modify_sample_attachments(tree, sample_idx=None, new_node_id=None):
     sample.node = new_node
     new_node.samples.append(sample)
     return {"old_node.id_": current_node.id_, "new_node.id_": new_node.id_, "success": True}
+
+
+def split_node(tree,node_id=None):
+    if node_id is None:
+        idx = np.random.choice(len(tree.nodes))
+        node = tree.nodes[idx]
+    else:
+        for n in tree.nodes:
+            if n.id_ == node_id:
+                node = n
+                break
+
+    tree.node_max_id += 1
+    new_node = Node(tree.node_max_id, tree.config)
+    if node.parent is None:
+        tree.root = new_node
+    else:
+        node.parent.children.remove(node)
+        node.parent.add_child(new_node)
+
+    new_node.add_child(node)
+
+    for event in node.events:
+        if np.random.randint(2):
+            node.events.remove(event)
+            new_node.events.append(event)
+
+    for sample in node.samples:
+        if np.random.randint(2):
+            node.samples.remove(sample)
+            new_node.add_sample(sample)
+    tree.nodes.append(new_node)
+    return {"child_node.id_": node.id_, "parent_node.id_": new_node.id_, "success": True}
+
+def merge_nodes(tree,parent_node_id=None,child_node_id=None):
+    if parent_node_id is None:
+        potential_merges = []
+        for node in tree.nodes:
+            for child in node.children:
+                if can_be_merged(node,child):
+                    potential_merges.append((node,child))
+        if len(potential_merges) == 0:
+            return {"success": False, "reason":"No nodes could be merged"}
+
+        merge = potential_merges[np.random.randint(len(potential_merges))]
+        parent_node = merge[0]
+        child_node = merge[1]
+    else:
+        parent_node = None
+        child_node = None
+        for n in tree.nodes:
+            if n.id_ == parent_node_id:
+                parent_node = n
+            elif n.id_ == child_node_id:
+                child_node = n
+    parent_node.children.remove(child_node)
+    tree.nodes.remove(child_node)
+    parent_node.events.extend(child_node.events)
+    parent_node.events.sort(key = lambda x: x.segments[0])
+    for sample in child_node.samples:
+        parent_node.add_sample(sample)
+    for child_child in child_node.children:
+        parent_node.add_child(child_child)
+
+    return {"success": True, "parent_node.id_":parent_node.id_, "child_node.id_":child_node.id_}

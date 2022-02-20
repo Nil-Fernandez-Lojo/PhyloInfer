@@ -30,15 +30,11 @@ print(tree)
 for node in tree.nodes:
     print(node.id_, [str(event) for event in node.events])
 exit()
-read_counts = []
-for node in tree.nodes:
-    for sample in node.samples:
-        read_counts.append(sample.read_count)
+samples = tree.get_samples_copy()
 
 tree2 = Tree(number_nodes, config)  # generates a tree with random topology
-tree2.randomly_assign_samples(read_counts)
-print(
-    tree2.get_log_posterior())
+tree2.randomly_assign_samples(samples)
+print(tree2.get_log_posterior())
 print(tree2)
 
 # for i in range(10000):

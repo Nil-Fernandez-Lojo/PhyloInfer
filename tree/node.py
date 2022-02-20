@@ -121,15 +121,23 @@ class Node:
         returns a copy of profile
     """
 
-    def __init__(self, id_, config, parent=None):
+    def __init__(self, id_, config, parent=None, profile=None):
         self.id_ = id_
         self.parent = parent
         self.children = []
-        self.events = []
         self.samples = []
         self.config = config
-        self.profile = 2 * np.ones(config['number_segments'])
-        self.log_prior = 0
+        if profile is None:
+            self.profile = 2 * np.ones(config['number_segments'])
+            self.events = []
+        else:
+            self.profile = np.array(profile)
+            parent_profile = self.get_parent_profile()
+            change_profile = self.profile - parent_profile
+            regions_available = get_regions_available_profile(parent_profile)
+            self.events = change_profile_to_events(change_profile, regions_available)
+        self.log_prior = None
+        self.update_log_prior_events()
         self.p_read = None
         self.update_p_read()
 
@@ -148,12 +156,15 @@ class Node:
         self.events = sample_events(regions_available, self.config['p_new_event'])
         self.update_profile()
 
+    def get_parent_profile(self):
+        if self.parent is None:
+            return 2 * np.ones(self.config['number_segments'])
+        else:
+            return copy.deepcopy(self.parent.get_profile())
+
     def update_profile(self):
         # get profile_parents
-        if self.parent is None:
-            self.profile = 2 * np.ones(self.config['number_segments'])
-        else:
-            self.profile = self.parent.get_profile()
+        self.profile = self.get_parent_profile()
 
         # add events to profile
         change_profile = events_to_vector(self.events, self.config['number_segments'])
@@ -164,11 +175,7 @@ class Node:
         # This is needed for when a move
         if len(self.events) < 2:
             return
-
-        if self.parent is None:
-            regions_available = np.arange(self.config['number_segments'])
-        else:
-            regions_available = get_regions_available_profile(self.parent.get_profile())
+        regions_available = get_regions_available_profile(self.get_parent_profile())
 
         # TODO this is not clean
         # check if now impossible events after change of topology tree
@@ -182,47 +189,48 @@ class Node:
         change_profile = events_to_vector(self.events, self.config['number_segments'])
         self.events = change_profile_to_events(change_profile, regions_available)
 
-    def get_log_prior_events(self, update=True):
-        if update:
-            if self.parent is None:
-                regions_available = np.arange(self.config['number_segments'])
-            else:
-                regions_available = get_regions_available_profile(self.parent.get_profile())
-
-            profile = self.get_profile()
-            if np.any(profile < 0):
-                return float("-inf")
-
-            # If all DNA material removed
-            # TODO: need to change this for when multiple chr
-            if np.all(profile == 0):
-                return float("-inf")
-
-            # check if event spans regions deleted, if so prior equal zero
-            for event in self.events:
-                if not set(event.segments).issubset(regions_available):
-                    return float("-inf")
-
-            if self.parent is None:
-                k = self.config['number_segments']
-            else:
-                k = np.count_nonzero(self.parent.get_profile())
-
-            list_p_events = self.config['p_new_event'] ** np.arange(k + 1)
-            list_p_events = list_p_events / np.sum(list_p_events)
-
-            n_events = len(self.events)
-            # if self.parent is not None:
-            # 	print("parent profile",self.parent.get_profile())
-            # for event in self.events:
-            # 	print(event)
-            # print(n_events,k)
-            p_n_events = list_p_events[n_events]
-
-            self.log_prior = np.log(p_n_events)  # due to number of events
-            if n_events > 0:
-                self.log_prior -= np.log(N_events_combinations(n_events, k))  # due to possible combinations of events
+    def get_log_prior_events(self):
         return self.log_prior
+
+    def update_log_prior_events(self):
+        regions_available = get_regions_available_profile(self.get_parent_profile())
+
+        profile = self.get_profile()
+        if np.any(profile < 0):
+            self.log_prior = float("-inf")
+            return
+
+        # If all DNA material removed
+        # TODO: need to change this for when multiple chr
+        if np.all(profile == 0):
+            self.log_prior = float("-inf")
+            return
+
+        # check if event spans regions deleted, if so prior equal zero
+        for event in self.events:
+            if not set(event.segments).issubset(regions_available):
+                self.log_prior = float("-inf")
+                return
+
+        if self.parent is None:
+            k = self.config['number_segments']
+        else:
+            k = np.count_nonzero(self.parent.get_profile())
+
+        list_p_events = self.config['p_new_event'] ** np.arange(k + 1)
+        list_p_events = list_p_events / np.sum(list_p_events)
+
+        n_events = len(self.events)
+        # if self.parent is not None:
+        # 	print("parent profile",self.parent.get_profile())
+        # for event in self.events:
+        # 	print(event)
+        # print(n_events,k)
+        p_n_events = list_p_events[n_events]
+
+        self.log_prior = np.log(p_n_events)  # due to number of events
+        if n_events > 0:
+            self.log_prior -= np.log(N_events_combinations(n_events, k))  # due to possible combinations of events
 
     def update_log_likelihood_samples(self):
         for sample in self.samples:
@@ -242,8 +250,26 @@ class Node:
         return log_likelihood
 
     def update_p_read(self):
-        self.p_read = np.multiply(self.config['length_segments'], self.get_profile())
-        self.p_read = self.p_read / np.sum(self.p_read)
+        if np.all(self.profile == 0):
+            self.p_read = np.multiply(self.config['length_segments'], self.profile)
+        elif np.any(self.profile < 0):
+            self.p_read = np.zeros(len(self.config['length_segments']))
+        else:
+            self.p_read = np.multiply(self.config['length_segments'], self.profile)
+            self.p_read = self.p_read / np.sum(self.p_read)
 
     def get_profile(self):
         return np.copy(self.profile)
+
+    def add_sample(self,sample):
+        self.samples.append(sample)
+        sample.node = self
+        # TODO can we remove this?
+        sample.update_log_likelihood()
+
+    def get_samples_copy(self, remove_assignation = True):
+        samples = copy.deepcopy(self.samples)
+        if remove_assignation:
+            for sample in samples:
+                sample.unassign(remove_from_parent=False)
+        return samples

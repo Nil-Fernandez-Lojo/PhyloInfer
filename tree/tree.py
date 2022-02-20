@@ -1,7 +1,8 @@
 import numpy as np
-
+import math
 from tree.node import Node
 from tree.sample import Sample
+import json
 
 
 # TODO: for now 1 diploid chromosome, need to change that
@@ -14,8 +15,6 @@ class Tree:
 
     Attributes
     ----------
-    number_nodes: int
-        Number of nodes in the tree
     nodes: list of objects of the class node
         list of nodes
     config: dict
@@ -54,10 +53,58 @@ class Tree:
         returns a string representation of the tree
     """
 
-    def __init__(self, number_nodes, config):
+    def __init__(self, number_nodes=None, config=None, path_tree_load=None):
         self.config = config
-        self.number_nodes = number_nodes  # TODO, we should remove this variable
-        self.nodes = [Node(i, config) for i in range(number_nodes)]
+        self.nodes = []
+        self.root = None
+        self.samples = []
+        if path_tree_load is None:
+            self.random_init(number_nodes)
+        else:
+            self.load_tree(path_tree_load)
+        self.log_prior = None
+        self.update_log_prior()
+        self.log_likelihood = None
+        self.update_log_likelihood()
+        self.update_log_prior()
+        self.node_max_id = len(self.nodes)
+
+    def load_tree(self, path_tree_load):
+        # TODO change code such that it loads the whole tree
+        # TODO check that the tree is valid
+
+        with open(path_tree_load) as json_file:
+            tree_json = json.load(json_file)
+
+        # TODO: p_new_event should not be in json file...
+        self.config = {'number_segments' : len(tree_json["length_segments"]),
+                       'length_segments' : tree_json["length_segments"],
+                       'p_new_event': tree_json["p_new_event"],
+                       "k_n_nodes": tree_json["k_n_nodes"]}
+
+        self._add_node(tree_json["tree"][0], None)
+        self.root = self.nodes[0]
+
+    def _add_node(self,node_dict,parent):
+        node = Node(node_dict["id"],
+                         self.config,
+                         parent=parent,
+                         profile=np.array(node_dict["profile"]))
+
+        if parent is not None:
+            parent.children.append(node)
+
+        for s in node_dict["samples"]:
+            sample = Sample(s["id"], self.config, read_count=s["read_count"])
+            node.add_sample(sample)
+            self.samples.append(sample)
+
+        self.nodes.append(node)
+        for child_dict in node_dict["children"]:
+            self._add_node(child_dict,node)
+
+    def random_init(self, number_nodes):
+        self.nodes = [Node(i, self.config) for i in range(number_nodes)]
 
         if number_nodes == 0:
             self.root = None
@@ -86,41 +133,64 @@ class Tree:
                         connected_nodes.add(edge[0])
                         del edges[i]
                         break
-        self.samples = []
 
     def _add_directed_edge(self, edge):
-        # Internal method used by __init__
-        self.nodes[edge[0]].children.append(self.nodes[edge[1]])
-        self.nodes[edge[1]].parent = self.nodes[edge[0]]
+        self.nodes[edge[0]].add_child(self.nodes[edge[1]])
 
     def generate_events(self):
         self._dfs(self.root, 'sample_events')
+        self.update_log_prior()
+        self.update_log_prior()
+
+    def remove_events(self):
+        for node in self.nodes:
+            node.events = []
+        self._update_profiles()
+        self.update_log_prior()
+        self.update_log_prior()
 
     def update_events(self, node=None):
         if node is None:
             self._dfs(self.root, 'update_events')
         else:
             self._dfs(node, 'update_events')
+        self.update_log_prior()
 
     def generate_samples(self, n_reads_sample):
         for i in range(len(n_reads_sample)):
-            node = self.nodes[np.random.randint(self.number_nodes)]
-            sample = Sample(i, node, self.config)
+            node = self.nodes[np.random.randint(len(self.nodes))]
+            sample = Sample(i, self.config)
+            node.add_sample(sample)
             sample.generate_read_counts_from_cn(n_reads_sample[i])
-            node.samples.append(sample)
             self.samples.append(sample)
+        self.update_log_prior()
+        self.update_log_likelihood()
 
-    def randomly_assign_samples(self, read_counts):
-        for i in range(len(read_counts)):
+    def randomly_assign_samples(self, samples):
+        for sample in samples:
             permutation = np.random.permutation(len(self.nodes))
             for j in range(len(self.nodes)):
                 node = self.nodes[permutation[j]]
                 profile = node.get_profile()
-                if not np.any((profile == 0) & (read_counts[i] != 0)):
+                if not np.any((profile == 0) & (sample.read_count != 0)):
                     break
-            sample = Sample(i, node, self.config, read_counts[i])
-            node.samples.append(sample)
+            node.add_sample(sample)
             self.samples.append(sample)
+        self.update_log_prior()
+        self.update_log_likelihood()
+
+    def remove_samples(self):
+        for node in self.nodes:
+            node.samples = []
+        self.samples = []
+        self.update_log_prior()
+        self.update_log_likelihood()
+
+    def get_samples_copy(self,remove_assignation=True):
+        samples = []
+        for node in self.nodes:
+            samples.extend(node.get_samples_copy(remove_assignation=remove_assignation))
+        return samples
 
     def get_number_samples(self):
         return len(self.samples)
@@ -131,45 +201,60 @@ class Tree:
             n += len(node.events)
         return n
 
-    def get_log_prior(self):
+    def update_log_prior(self,root_nodes_to_update = "root"):
+        # TODO:  allow to just update 1 term of log prior
         n_samples = self.get_number_samples()
-        tree_size_term = -np.log(2) * n_samples * self.number_nodes  # TODO: Do we really want this?
-        tree_topology_term = - (self.number_nodes - 1) * np.log(self.number_nodes)
+        tree_size_term = -np.log(2) * n_samples * len(self.nodes)*self.config["k_n_nodes"]  # TODO: Do we really want this?
+        tree_topology_term = - (len(self.nodes) - 1) * np.log(len(self.nodes))
+
+        if root_nodes_to_update is not None:
+            if root_nodes_to_update == "root":
+                root_nodes_to_update = [self.root]
+            for node in root_nodes_to_update:
+                # TODO: this assumes that the CN profiles of each node are updated, we should probably change this
+                self._dfs(node, 'update_log_prior_events')
 
         # prior events
         events_term = 0
         for node in self.nodes:
-            # TODO: change this such that if part of the tree is modified, no need to redo all the calculations
-            # TODO: this assumes that the CN profiles of each node are updated, we should change this
-            events_term += node.get_log_prior_events(update=True)
+            log_prior_node = node.get_log_prior_events()
+            if math.isinf(log_prior_node):
+                self.log_prior =  float('-inf')
+                return
+            else:
+                events_term += log_prior_node
 
-        sample_assignation_term = - n_samples * np.log(self.number_nodes)
-        return tree_size_term + tree_topology_term + events_term + sample_assignation_term
+        sample_assignation_term = - n_samples * np.log(len(self.nodes))
+        self.log_prior = tree_size_term + tree_topology_term + events_term + sample_assignation_term
 
-    def update_samples_log_likelihood(self, root_nodes_to_update=None):
-        if root_nodes_to_update is None:
-            root_nodes_to_update = ["root"]
+    def get_log_prior(self,root_nodes_to_update="root"):
+        if root_nodes_to_update is not None:
+            self.update_log_prior(root_nodes_to_update)
+        return self.log_prior
+
+    def update_log_likelihood(self, root_nodes_to_update="root"):
+        if root_nodes_to_update == "root":
+            root_nodes_to_update = [self.root]
+
         for node in root_nodes_to_update:
-            if node == "root":
-                node = self.root
             self._dfs(node, 'update_log_likelihood_samples')
 
-    def get_log_likelihood(self, root_nodes_to_update=None):
-        if root_nodes_to_update is None:
-            root_nodes_to_update = ["root"]
-        self.update_samples_log_likelihood(root_nodes_to_update=root_nodes_to_update)
-
-        log_likelihood = 0
+        self.log_likelihood = 0
         for sample in self.samples:
-            log_likelihood += sample.get_log_likelihood()
-        return log_likelihood
+            self.log_likelihood += sample.get_log_likelihood()
 
-    def get_log_posterior(self):
+    def get_log_likelihood(self, root_nodes_to_update="root"):
+        if root_nodes_to_update is not None:
+            self.update_log_likelihood(root_nodes_to_update)
+        return self.log_likelihood
+
+    def get_log_posterior(self,update=True):
+        # TODO: we shoudl be able to use root_nodes_to_update
         # Unnormalised (i.e. up to an additive constant)
-        log_prior = self.get_log_prior()
-        log_likelihood = self.get_log_likelihood()
-        # print('log_prior:',log_prior,", log_likelihood:",log_likelihood)
-        return log_prior + log_likelihood
+        if update:
+            self.update_log_prior()
+            self.update_log_likelihood()
+        return self.get_log_prior(root_nodes_to_update=None) + self.get_log_likelihood(root_nodes_to_update=None)
 
     def _dfs(self, node, method_name):
         method = getattr(node, method_name)
@@ -189,6 +274,12 @@ class Tree:
             node = self.root
         self._dfs(node, 'update_profile')
 
+    def get_node_from_id(self,id_):
+        # TODO: this should be used in multiple places in the code
+        for node in self.nodes:
+            if node.id_ == id_:
+                return node
+
     def __str__(self):
         def dfs_str(depth, node, string):
             string += depth * '  ' + '-id: ' + str(node.id_) + ' CN: ' + str(node.get_profile()) + '\n'
@@ -200,7 +291,6 @@ class Tree:
 
         self._update_profiles()  # TODO remove
         return dfs_str(0, self.root, '')
-
 
 def decode_prufer(p):
     """
