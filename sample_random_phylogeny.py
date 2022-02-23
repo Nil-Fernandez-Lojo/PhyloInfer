@@ -30,7 +30,7 @@ print(tree)
 for node in tree.nodes:
     print(node.id_, [str(event) for event in node.events])
 exit()
-samples = tree.get_samples_copy()
+samples = tree.get_samples_unassigned_copy()
 
 tree2 = Tree(number_nodes, config)  # generates a tree with random topology
 tree2.randomly_assign_samples(samples)

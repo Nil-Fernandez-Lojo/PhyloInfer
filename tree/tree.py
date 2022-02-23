@@ -3,6 +3,7 @@ import math
 from tree.node import Node
 from tree.sample import Sample
 import json
+import copy
 
 
 # TODO: for now 1 diploid chromosome, need to change that
@@ -53,20 +54,21 @@ class Tree:
         returns a string representation of the tree
     """
 
-    def __init__(self, number_nodes=None, config=None, path_tree_load=None):
+    def __init__(self, number_nodes=None, config=None, path_tree_load=None, random_init=True):
         self.config = config
         self.nodes = []
         self.root = None
         self.samples = []
-        if path_tree_load is None:
-            self.random_init(number_nodes)
-        else:
+        if path_tree_load is not None:
             self.load_tree(path_tree_load)
+        elif random_init:
+            self.random_init(number_nodes)
+
         self.log_prior = None
-        self.update_log_prior()
         self.log_likelihood = None
-        self.update_log_likelihood()
-        self.update_log_prior()
+        if (random_init) or (path_tree_load is not None):
+            self.update_log_likelihood()
+            self.update_log_prior()
         self.node_max_id = len(self.nodes)
 
     def load_tree(self, path_tree_load):
@@ -166,6 +168,8 @@ class Tree:
         self.update_log_prior()
         self.update_log_likelihood()
 
+
+
     def randomly_assign_samples(self, samples):
         for sample in samples:
             permutation = np.random.permutation(len(self.nodes))
@@ -186,11 +190,8 @@ class Tree:
         self.update_log_prior()
         self.update_log_likelihood()
 
-    def get_samples_copy(self,remove_assignation=True):
-        samples = []
-        for node in self.nodes:
-            samples.extend(node.get_samples_copy(remove_assignation=remove_assignation))
-        return samples
+    def get_samples_unassigned_copy(self,copy_log_likelihood=False):
+        return [sample.get_copy_unassigned(copy_log_likelihood) for sample in self.samples]
 
     def get_number_samples(self):
         return len(self.samples)
@@ -205,6 +206,7 @@ class Tree:
         # TODO:  allow to just update 1 term of log prior
         n_samples = self.get_number_samples()
         tree_size_term = -np.log(2) * n_samples * len(self.nodes)*self.config["k_n_nodes"]  # TODO: Do we really want this?
+        #tree_size_term = -np.log(2) * len(self.nodes)*self.config["k_n_nodes"]
         tree_topology_term = - (len(self.nodes) - 1) * np.log(len(self.nodes))
 
         if root_nodes_to_update is not None:
@@ -280,17 +282,59 @@ class Tree:
             if node.id_ == id_:
                 return node
 
-    def __str__(self):
-        def dfs_str(depth, node, string):
-            string += depth * '  ' + '-id: ' + str(node.id_) + ' CN: ' + str(node.get_profile()) + '\n'
+    def dfs_str(self,depth, node, string,add_samples=True):
+        string += depth * '  ' + '-id: ' + str(node.id_) + ' CN: ' + str(node.get_profile()) + '\n'
+        if add_samples:
             for sample in node.samples:
                 string += (depth + 1) * '  ' + 'sample: ' + str(sample.read_count) + '\n'
-            for child in node.children:
-                string = dfs_str(depth + 1, child, string)
-            return string
+        else:
+            string += (depth + 1) * '  ' + ' Number of samples: ' + str(len(node.samples))+ '\n'
+        for child in node.children:
+            string = self.dfs_str(depth + 1, child, string,add_samples=add_samples)
+        return string
 
+    def print(self,add_samples=True):
         self._update_profiles()  # TODO remove
-        return dfs_str(0, self.root, '')
+        print(self.dfs_str(0, self.root, '',add_samples=add_samples))
+
+    def to_file(self,path, mode,iteration,add_samples=False):
+        with open(path, mode) as f:
+            f.write("cycle: "+str(iteration)+" posterior: "+ str(self.get_log_posterior(update=False)))
+            f.write(self.dfs_str(0, self.root, '',add_samples=add_samples))
+            f.write('\n')
+
+    def _copy_nodes(self, tree_copy,parent_node_copy,current_node):
+        node_copy = Node(current_node.id_, self.config)
+        node_copy.events = copy.deepcopy(current_node.events)
+        node_copy.profile = copy.deepcopy(current_node.profile)
+        node_copy.log_prior = current_node.log_prior
+        node_copy.p_read =  copy.deepcopy(current_node.p_read)
+        if parent_node_copy is not None:
+            parent_node_copy.add_child(node_copy)
+        tree_copy.nodes.append(node_copy)
+
+        for sample in current_node.samples:
+            sample_copy = sample.get_copy_unassigned(copy_log_likelihood=True)
+            node_copy.add_sample(sample_copy,update_log_likelihood=False)
+
+        for child in current_node.children:
+            self._copy_nodes(tree_copy, node_copy, child)
+
+    def get_copy(self):
+        tree_copy = Tree(number_nodes=None, config=self.config, path_tree_load=None, random_init=False)
+        self._copy_nodes(tree_copy,None,self.root)
+        tree_copy.root = tree_copy.nodes[0]
+        tree_copy.node_max_id = self.node_max_id
+        tree_copy.log_prior = self.log_prior
+        tree_copy.log_likelihood =  self.log_likelihood
+        for node in tree_copy.nodes:
+            tree_copy.samples.extend(node.samples)
+        return tree_copy
+
+    def __str__(self):
+        self._update_profiles()  # TODO remove
+        return self.dfs_str(0, self.root, '')
+
 
 def decode_prufer(p):
     """

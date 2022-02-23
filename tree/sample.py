@@ -71,3 +71,9 @@ class Sample:
     def unassign(self,remove_from_parent = True):
         self.node = None
         self.log_likelihood = None
+
+    def get_copy_unassigned(self, copy_log_likelihood = False):
+        sample = Sample(self.id_, self.config, read_count=self.read_count)
+        if copy_log_likelihood:
+            sample.log_likelihood = self.log_likelihood
+        return sample

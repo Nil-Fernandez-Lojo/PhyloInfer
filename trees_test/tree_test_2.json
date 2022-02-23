@@ -1,7 +1,7 @@
 {
   "length_segments": [1,1,1,1],
-  "p_new_event" : 0.01,
-  "k_n_nodes" : 1,
+  "p_new_event" :  0.0001,
+  "k_n_nodes" : 0.01,
   "tree": [
     {
       "id": 4,

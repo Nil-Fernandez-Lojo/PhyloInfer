@@ -160,7 +160,7 @@ class Node:
         if self.parent is None:
             return 2 * np.ones(self.config['number_segments'])
         else:
-            return copy.deepcopy(self.parent.get_profile())
+            return self.parent.get_profile()
 
     def update_profile(self):
         # get profile_parents
@@ -261,15 +261,9 @@ class Node:
     def get_profile(self):
         return np.copy(self.profile)
 
-    def add_sample(self,sample):
+    def add_sample(self,sample, update_log_likelihood=True):
         self.samples.append(sample)
         sample.node = self
         # TODO can we remove this?
-        sample.update_log_likelihood()
-
-    def get_samples_copy(self, remove_assignation = True):
-        samples = copy.deepcopy(self.samples)
-        if remove_assignation:
-            for sample in samples:
-                sample.unassign(remove_from_parent=False)
-        return samples
+        if update_log_likelihood:
+            sample.update_log_likelihood()

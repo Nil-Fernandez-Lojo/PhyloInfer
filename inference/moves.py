@@ -186,7 +186,7 @@ def move(tree, move_type,
          event_to_add=None,
          event_idx_to_remove=None,
          sample_idx=None):
-    tree_modified = copy.deepcopy(tree)
+    tree_modified = tree.get_copy()
     if move_type == 'prune_and_reattach':
         info = prune_and_reattach(tree_modified)
     elif move_type == 'swap_events_2_nodes':

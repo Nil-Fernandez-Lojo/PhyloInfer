@@ -1,5 +1,6 @@
 from tree.tree import Tree
 from inference.moves import move, p_add_event,get_root_nodes_affected_by_move,can_be_merged,get_possible_modifications_event
+from inference.util import ress,nextAnnealingParameter
 import numpy as np
 import copy
 import math
@@ -222,7 +223,7 @@ def mcmc(tree_start,
          iter_equal_move_accepted=False,
          verbose=1,
          max_proposed_moves=10 ** 6):
-    list_trees = [copy.deepcopy(tree_start)]
+    list_trees = [tree_start]
     tree = tree_start
     i = 0
 
@@ -234,14 +235,14 @@ def mcmc(tree_start,
         move_type = select_move_type(moves,move_weights,tree)
         (accepted, new_tree, info) = mh_move(tree, move_type, move_weights, beta)
         if accepted:
-            list_trees.append(copy.deepcopy(new_tree))
+            list_trees.append(new_tree)
             tree = new_tree
             #print("number of nodes: ", len(new_tree.nodes))
             #if (move_type in ["split_node", "merge_nodes"]):
             #    print("move accepted", move_type,"number of nodes", len(tree.nodes))
-            if verbose > 0:
+            if verbose > 1:
                 print(i, "move_type", move_type, info)
-                print(new_tree)
+                #print(new_tree)
         i += 1
     return list_trees
 
@@ -254,59 +255,54 @@ def mc3(moves,
         n_cycles,
         list_beta,
         iter_equal_move_accepted = True,
-        verbose=1):
+        verbose=1,
+        path_to_save_trees=None):
 
-    list_trees = dict()
+    if path_to_save_trees is not None:
+        tree_start.to_file(path_to_save_trees,'w',0)
+    list_trees = []
     tree_start_chain = dict()
     for j in range(len(list_beta)):
-        list_trees[j] = []
         tree_start_chain[j] = tree_start
     best_post = float("-inf")
-    executor = get_reusable_executor(max_workers=MAX_WORKERS)
+    executor = get_reusable_executor(max_workers=min(MAX_WORKERS,len(list_beta)))
     for i in range(n_cycles):
-        time_start = time.time()
-        print("cycle:", i, "out of", n_cycles )
-        jobs = []
+        print("cycle:", i, "out of", n_cycles)
+        if verbose>0:
+            time_start = time.time()
+        if MAX_WORKERS == 1:
+            list_trees_cycles = []
+            for j in range(len(list_beta)):
+                list_trees_cycles.append(mcmc(tree_start_chain[j],
+                                              moves,
+                                              move_weights,
+                                              n_iter_cycle,
+                                              list_beta[j],
+                                              iter_equal_move_accepted,
+                                              verbose))
+        else:
+            jobs = []
+            for j in range(len(list_beta)):
+                jobs.append((tree_start_chain[j],
+                             moves,
+                             move_weights,
+                             n_iter_cycle,
+                             list_beta[j],
+                             iter_equal_move_accepted,
+                             verbose))
+            list_trees_cycles = list(executor.map(lambda p: mcmc(*p), jobs, chunksize=1))
+
+        list_trees.extend(list_trees_cycles[0][1:])
         for j in range(len(list_beta)):
-            jobs.append((tree_start_chain[j],
-                         moves,
-                         move_weights,
-                         n_iter_cycle,
-                         list_beta[j],
-                         iter_equal_move_accepted,
-                         verbose))
-        list_trees_cycles = list(executor.map(lambda p: mcmc(*p), jobs, chunksize=1))
-        print('time taken cycle', time.time()- time_start)
-        # for j in range(len(list_beta)):
-        #     # print("beta:", beta, "tree start")
-        #     # print(tree_start_chain[beta])
-        #     list_trees_cycle = mcmc(tree_start_chain[j],
-        #                             moves,
-        #                             move_weights,
-        #                             n_iter_cycle,
-        #                             beta=list_beta[j],
-        #                             iter_equal_move_accepted=iter_equal_move_accepted,
-        #                             verbose=verbose)
-        #     # if (beta==1) and (i>0):
-        #     #     print(list_trees[1][-1])
-        #     #     if len(list_trees_cycle) == 1:
-        #     #         print([])
-        #     #     else:
-        #     #         print(list_trees_cycle[1])
+            tree_start_chain[j] = list_trees_cycles[j][-1]
 
-        for j in range(len(list_beta)):
-            list_trees[j].extend(copy.copy(list_trees_cycles[j][1:]))
-            tree_start_chain[j] = copy.deepcopy(list_trees_cycles[j][-1])
-        print('time after archiving', time.time()- time_start)
-
-
-        print('n samples', len(list_trees[0]))
-        for k, t in enumerate(list_trees_cycles[0]):
-            post = t.get_log_posterior(update=False)
-            if post > best_post:
-                best_post = post
-        print("best_post", best_post)
-        print('time after finding best posterior', time.time() - time_start)
+        if verbose > 0:
+            print('n samples', len(list_trees))
+            for k, t in enumerate(list_trees_cycles[0]):
+                post = t.get_log_posterior(update=False)
+                if post > best_post:
+                    best_post = post
+            print("best_post", best_post)
         # choose 2 chains at random
         (beta_1_idx, beta_2_idx) = np.random.choice(len(list_beta), size=2, replace=False)
         beta_1 = list_beta[beta_1_idx]
@@ -319,88 +315,109 @@ def mc3(moves,
             temp = tree_start_chain[beta_1_idx]
             tree_start_chain[beta_1_idx] = tree_start_chain[beta_2_idx]
             tree_start_chain[beta_2_idx] = temp
-            list_trees[beta_1_idx].append(copy.copy(tree_start_chain[beta_1_idx]))
-            list_trees[beta_2_idx].append(copy.copy(tree_start_chain[beta_2_idx]))
-        print('time after exchange', time.time() - time_start)
+            if beta_1_idx == 0:
+                list_trees.append(tree_start_chain[beta_1_idx])
+            elif beta_2_idx == 0:
+                list_trees.append(tree_start_chain[beta_2_idx])
 
-        # print("beta_1", beta_1, "beta_2", beta_2)
-        # print("p_exchange", p_exchange)
-        # print("posterior 1", tree_start_chain[beta_1].get_log_posterior())
-        # print("posterior 2", tree_start_chain[beta_2].get_log_posterior())
-        # print('tree_1')
-        # print(tree_start_chain[beta_1])
-        # print('tree_2')
-        # print(tree_start_chain[beta_2])
-    return list_trees[0]
+        if path_to_save_trees is not None:
+            tree_start_chain[0].to_file(path_to_save_trees, 'a',i+1)
+        if verbose>0:
+            print('time taken by cycle', time.time() - time_start)
+
+    return list_trees
 
 
 def asmc_iteration(moves,move_weights,tree,phi_r,phi_r_minus_1):
     move_type = select_move_type(moves, move_weights, tree)
     (accepted, new_tree, info) = mh_move(tree, move_type, move_weights, phi_r, annealing_on_prior=False)
-    w = np.exp(tree.get_log_likelihood() * (phi_r - phi_r_minus_1))
+    log_w = tree.get_log_likelihood() * (phi_r - phi_r_minus_1)
     if accepted:
-        return new_tree,w
+        return new_tree,log_w
     else:
-        return tree, w
+        return tree, log_w
 
 def annealed_smc(moves,
                  move_weights,
                  n_particles,
                  n_iter,
                  trees_start,
+                 epsilon_ress,
+                 alpha,
                  verbose=1):
+    executor = get_reusable_executor(max_workers=MAX_WORKERS)
 
-        trees = copy.deepcopy(trees_start)
-        list_trees = [copy.deepcopy(trees)]
-        weights = np.ones((n_iter,n_particles))
-        w = np.ones(n_particles)
-        executor = get_reusable_executor(max_workers=MAX_WORKERS)
-
-        for r in range(1,n_iter+1):
-            # time_start_iteration = time.time()
-            if verbose>0:
-                print('iteration', r, 'out of',n_iter)
-            phi_r_minus_1 = ((r-1)/n_iter)**3
-            phi_r = (r/n_iter)**3
-            jobs = []
-            for i in range(n_particles):
-                jobs.append((moves, move_weights, trees[i], phi_r, phi_r_minus_1))
-            #print('time before extension', time.time()-time_start_iteration)
-            results = list(executor.map(lambda p: asmc_iteration(*p), jobs, chunksize=round(n_particles/10)))
-            #print('time after extension', time.time()-time_start_iteration)
-            for i in range(n_particles):
-                trees[i] = results[i][0]
-                w[i] = results[i][1]
-            #print('time after unpacking', time.time()-time_start_iteration)
-
-            # for i in range(n_particles):
-            #     tree = trees[i]
-            #     (new_tree,w_i) = asmc_iteration(moves, move_weights, tree, phi_r, phi_r_minus_1)
-            #     w[i] = w_i
-            #     trees[i] = new_tree
-            W = w/np.sum(w)
-
-            if r < n_iter:
-                particule_idx = np.random.choice(n_particles, size=n_particles, p=W)
-                temp = copy.copy(trees)
-                for part,old_part in enumerate(particule_idx):
-                    trees[part] = temp[old_part]
-            #print('time after resampling', time.time()-time_start_iteration)
-            list_trees.append(trees)
-            weights[r-1,:] = W
-            #print('time after archiving', time.time()-time_start_iteration)
+    # n_moves_start = 10
+    # for j in range(n_moves_start):
+    #     jobs = []
+    #     for i in range(n_particles):
+    #         jobs.append((moves, move_weights, trees_start[i], 1, 0))
+    #     # print('time before extension', time.time()-time_start_iteration)
+    #     results = list(executor.map(lambda p: asmc_iteration(*p), jobs, chunksize=round(n_particles / 10)))
+    #     # print('time after extension', time.time()-time_start_iteration)
+    #     for i in range(n_particles):
+    #         trees_start[i] = results[i][0]
 
 
-            best_post = float('-inf')
-            for tree in trees:
-                post = tree.get_log_posterior(update=False)
-                if post > best_post:
-                    best_post = post
-            print('best posterior', best_post)
-            #print('time after printing best post', time.time()-time_start_iteration)
+    trees = trees_start
+    list_trees = [trees]
+    weights = np.ones((n_iter,n_particles))
+    log_w = np.zeros(n_particles)
+    W = np.ones(n_particles)/n_particles
+
+    #phi_r = 0.01
+    for r in range(1,n_iter+1):
+        # time_start_iteration = time.time()
+        if verbose>0:
+            print('iteration', r, 'out of',n_iter)
+        phi_r_minus_1 = ((r-1)/n_iter)**3
+        phi_r = (r/n_iter)**3
+        # log_likelihood = np.array([t.get_log_likelihood(root_nodes_to_update=None) for t in trees])
+        # phi_r_minus_1 = phi_r
+        # phi_r = nextAnnealingParameter(W,log_likelihood,phi_r_minus_1,alpha)
+        # print('phi_r',phi_r,'phi_r_minus_1',phi_r_minus_1)
+        jobs = []
+        for i in range(n_particles):
+            jobs.append((moves, move_weights, trees[i], phi_r, phi_r_minus_1))
+        #print('time before extension', time.time()-time_start_iteration)
+        results = list(executor.map(lambda p: asmc_iteration(*p), jobs, chunksize=round(n_particles/10)))
+        #print('time after extension', time.time()-time_start_iteration)
+        for i in range(n_particles):
+            trees[i] = results[i][0]
+            log_w[i] = log_w[i]+results[i][1]
+        #print('time after unpacking', time.time()-time_start_iteration)
+        # for i in range(n_particles):
+        #     tree = trees[i]
+        #     (new_tree,w_i) = asmc_iteration(moves, move_weights, tree, phi_r, phi_r_minus_1)
+        #     w[i] = w_i
+        #     trees[i] = new_tree
+        # this line is used to avoid an overflow
+        log_w = log_w-np.max(log_w)
+        w = np.exp(log_w)
+        W = w/np.sum(w)
+        if r < n_iter and ress(W)< epsilon_ress:
+            particule_idx = np.random.choice(n_particles, size=n_particles, p=W)
+            temp = copy.copy(trees)
+            for part,old_part in enumerate(particule_idx):
+                trees[part] = temp[old_part]
+            log_w = np.zeros(n_particles)
+        #print('time after resampling', time.time()-time_start_iteration)
+        list_trees.append(trees)
+        weights[r-1,:] = W
+        #print('time after archiving', time.time()-time_start_iteration)
 
 
-        return weights,list_trees
+        best_post = float('-inf')
+        for tree in trees:
+            post = tree.get_log_posterior(update=False)
+            if post > best_post:
+                best_post = post
+        print('best posterior', best_post)
+        print("ress",ress(W))
+        #print('time after printing best post', time.time()-time_start_iteration)
+
+
+    return weights,list_trees
 
 def get_moves_setup(setup_simulation):
     if setup_simulation == "tree_known":
@@ -418,38 +435,38 @@ def get_moves_setup(setup_simulation):
 
 def get_random_tree_start(setup_simulation,tree):
     if setup_simulation == "tree_known":
-        tree_start = copy.deepcopy(tree)
+        tree_start = tree.get_copy()
         tree_start.remove_samples()
-        samples = tree.get_samples_copy()
+        samples = tree.get_samples_unassigned_copy()
         tree_start.randomly_assign_samples(samples)
 
     elif setup_simulation == "tree_topology_and_sample_assignments_known":
-        tree_start = copy.deepcopy(tree)
+        tree_start = tree.get_copy()
         tree_start.remove_events()
 
     elif setup_simulation == "tree_topology_known":
-        tree_start = copy.deepcopy(tree)
+        tree_start = tree.get_copy()
         tree_start.remove_samples()
         tree_start.remove_events()
-        samples = tree.get_samples_copy()
+        samples = tree.get_samples_unassigned_copy()
         tree_start.randomly_assign_samples(samples)
 
     elif setup_simulation == "size_tree_known":
-        tree_start = Tree(len(tree.nodes), copy.deepcopy(tree.config))
-        samples = tree.get_samples_copy()
+        tree_start = Tree(len(tree.nodes), tree.config)
+        samples = tree.get_samples_unassigned_copy()
         tree_start.randomly_assign_samples(samples)
 
     else:
         # setup_simulation == "size_tree_NOT_known"
         # TODO sample random number of nodes should not be here
-        samples = tree.get_samples_copy()
+        samples = tree.get_samples_unassigned_copy()
         n_samples = len(samples)
 
         # TODO use random number of nodes at the beginning
         number_nodes = np.random.geometric((1/2)**(n_samples*tree.config["k_n_nodes"]))
         number_nodes = 3
 
-        tree_start = Tree(number_nodes, copy.deepcopy(tree.config))
+        tree_start = Tree(number_nodes, tree.config)
         tree_start.randomly_assign_samples(samples)
 
     return tree_start
@@ -533,6 +550,8 @@ def simulation_asmc(number_nodes,
                     setup_simulation,
                     n_particles,
                     n_iter,
+                    epsilon_ress,
+                    alpha,
                     tree=None,
                     verbose=1):
 
@@ -556,6 +575,8 @@ def simulation_asmc(number_nodes,
                                    n_particles,
                                    n_iter,
                                    trees_start,
+                                   epsilon_ress,
+                                   alpha,
                                    verbose=verbose)
 
     best_post = float('-inf')
@@ -576,7 +597,7 @@ def simulation_asmc(number_nodes,
 def main():
     verbose = 0
 
-    path_tree_load = "trees_test/tree_test_2.json"
+    path_tree_load = "trees_test/tree_test_4.json"
 
     setup_simulation = "size_tree_NOT_known"
     # setup_simulation = "size_tree_known"
@@ -602,7 +623,7 @@ def main():
 
     # MC3 parameters
     n_cycles = 200
-    n_iter_cycle = 500
+    n_iter_cycle = 100
     #list_beta = [1,1/2,1/3,1/4]
     list_beta = [1,1,1/2,1/2,1/4,1/4,1,1,1/2,1/2,1/4,1/4]
     #list_beta = [1, 1 / 1.5, 1 / 2, 1 / 2.5, 1/3, 1/3.5, 1/4,1/4.5,1/5, 1/5.5]
@@ -611,7 +632,10 @@ def main():
 
     # asmc parameters
     n_particles = 1000
-    n_iter = 1000
+    n_iter = 10
+    epsilon_ress = 0.75
+    beta = 3
+    alpha = 1-10**(-beta)
 
     tree = Tree(config=config, path_tree_load=path_tree_load)
     number_nodes = len(tree.nodes)
@@ -636,6 +660,8 @@ def main():
                         setup_simulation,
                         n_particles,
                         n_iter,
+                        epsilon_ress,
+                        alpha,
                         tree=tree)
-
-main()
+if __name__ == "__main__":
+    main()
